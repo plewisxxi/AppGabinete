@@ -2,9 +2,13 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from sqlmodel import Session, select
 from app.database import engine
-from app import models
+from app.models import Periodo
+import logging
 
-Periodo = models.Periodo
+logging.basicConfig(level=logging.DEBUG)
+
+
+#Periodo = models.Periodo
 
 router = APIRouter()
 
@@ -21,6 +25,7 @@ def list_periodos(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1)):
 
 @router.get("/{idperiodo}", response_model=Periodo)
 def get_periodo(idperiodo: str):
+    logging.debug(idperiodo)
     with Session(engine) as s:
         obj = s.get(Periodo, idperiodo)
         if not obj:

@@ -10,7 +10,7 @@ Factura = models.Factura
 Contacto = models.Contacto
 Periodo = models.Periodo
 Producto = models.Producto
-Servicio = models.Servicio
+Sesion = models.Sesion
 
 router = APIRouter()
 
@@ -39,10 +39,10 @@ def list_facturas(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1)):
         return s.exec(stmt).all()
 
 
-@router.get("/{numero}", response_model=Factura)
-def get_factura(numero: str):
+@router.get("/{numeroFactura}", response_model=Factura)
+def get_factura(numeroFactura: str):
     with Session(engine) as s:
-        obj = s.get(Factura, numero)
+        obj = s.get(Factura, numeroFactura)
         if not obj:
             raise HTTPException(status_code=404, detail="Factura not found")
         return obj
@@ -50,41 +50,8 @@ def get_factura(numero: str):
 
 @router.post("/", response_model=Factura, status_code=201)
 def create_factura(payload: Dict[str, Any] = Body(...)):
-    """
-    Payload keys must match model attribute names. The FK to Contacto and Periodo are detected dynamically.
-    """
-    contacto_value = payload.get(CONTACTO_FK)
-    if contacto_value is None:
-        raise HTTPException(status_code=400, detail=f"{CONTACTO_FK} required")
     with Session(engine) as s:
-        contacto = s.get(Contacto, contacto_value)
-        if not contacto:
-            raise HTTPException(status_code=400, detail="Contacto not found")
-
-        # calculate total from optional items (items not persisted)
-        items = payload.get("items", [])
-        total = Decimal("0")
-        for it in items:
-            try:
-                cantidad = int(it.get("cantidad", 1))
-                precio_unit = Decimal(str(it.get("precio_unit", 0)))
-            except Exception:
-                raise HTTPException(status_code=400, detail="invalid item values")
-            prod_id = it.get("producto_id")
-            srv_id = it.get("servicio_id")
-            if prod_id is not None:
-                if s.get(Producto, prod_id) is None:
-                    raise HTTPException(status_code=400, detail=f"Producto {prod_id} not found")
-            if srv_id is not None:
-                if s.get(Servicio, srv_id) is None:
-                    raise HTTPException(status_code=400, detail=f"Servicio {srv_id} not found")
-            total += precio_unit * cantidad
-
-        # build factura payload using dynamic FK keys if present
-        factura_data = {k: v for k, v in payload.items() if k != "items"}
-        factura_data.setdefault("total", total)
-
-        factura = Factura(**factura_data)
+        factura = Factura(**payload)
         s.add(factura)
         s.commit()
         s.refresh(factura)
@@ -114,11 +81,11 @@ def update_factura(numero: str, payload: Dict[str, Any] = Body(...)):
                 except Exception:
                     raise HTTPException(status_code=400, detail="invalid item values")
                 prod_id = it.get("producto_id")
-                srv_id = it.get("servicio_id")
+                srv_id = it.get("sesion_id")
                 if prod_id is not None and s.get(Producto, prod_id) is None:
                     raise HTTPException(status_code=400, detail=f"Producto {prod_id} not found")
-                if srv_id is not None and s.get(Servicio, srv_id) is None:
-                    raise HTTPException(status_code=400, detail=f"Servicio {srv_id} not found")
+                if srv_id is not None and s.get(Sesion, srv_id) is None:
+                    raise HTTPException(status_code=400, detail=f"Sesion {srv_id} not found")
                 total += precio_unit * cantidad
             setattr(factura, "total", total)
 
@@ -145,24 +112,24 @@ def report_summary_by_period():
         # detect column keys dynamically
         periodo_pk = list(Periodo.__table__.primary_key)[0].key
         periodo_col = getattr(Periodo, periodo_pk)
-        factura_periodo_key = PERIODO_FK or "periodo_id"
+        factura_periodo_key = PERIODO_FK or "IDPeriodo"
         factura_periodo_col = getattr(Factura, factura_periodo_key)
         stmt = (
             select(
                 periodo_col,
-                Periodo.__table__.c.get("nombre"),
+                Periodo.__table__.c.get("descPeriodo"),
                 func.count(getattr(Factura, get_pk_key(Factura))).label("numero_facturas"),
-                func.coalesce(func.sum(Factura.__table__.c.get("total")), 0).label("total_facturado"),
+                func.coalesce(func.sum(Factura.total), 0).label("total_facturado"),
             )
             .outerjoin(Factura, factura_periodo_col == periodo_col)
-            .group_by(periodo_col, Periodo.__table__.c.get("nombre"))
+            .group_by(periodo_col, Periodo.__table__.c.get("descPeriodo"))
         )
         rows = s.exec(stmt).all()
         result = []
         for r in rows:
             result.append({
-                "periodo_id": r[0],
-                "periodo_nombre": r[1],
+                "IDPeriodo": r[0],
+                "descPeriodo": r[1],
                 "numero_facturas": int(r[2] or 0),
                 "total_facturado": float(r[3] or 0),
             })
@@ -174,14 +141,14 @@ def report_summary_by_contact():
     with Session(engine) as s:
         stmt = (
             select(
-                Contacto.nif,
-                Contacto.nombre,
-                func.count(Factura.id).label("numero_facturas"),
+                Contacto.NIF,
+                Contacto.Nombre,
+                func.count(Factura.numeroFactura).label("numero_facturas"),
                 func.coalesce(func.sum(Factura.total), 0).label("total_facturado"),
             )
-            .outerjoin(Factura, Factura.contacto_nif == Contacto.NIF)
-            .group_by(Contacto.nif, Contacto.nombre)
-            .order_by(Contacto.nombre)
+            .outerjoin(Factura, Factura.NIFCliente == Contacto.NIF)
+            .group_by(Contacto.NIF, Contacto.Nombre)
+            .order_by(Contacto.Nombre)
         )
         rows = s.exec(stmt).all()
         result = [

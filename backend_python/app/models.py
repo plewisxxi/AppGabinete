@@ -1,5 +1,5 @@
 from sqlmodel import Field, SQLModel,Relationship
-from datetime import datetime
+from datetime import datetime,date
 from decimal import Decimal
 from typing import List
 from typing import Optional
@@ -18,7 +18,6 @@ class ContactoBase(SQLModel):
     Telefono: Optional[str] = Field(default=None)
     IBAN: Optional[str] = Field(default=None)
     SWIFT_BIC: Optional[str] = Field(default=None)
-    cuentaCliente: Optional[int] = Field(default=None)
 
 class Contacto(ContactoBase, table=True):
     pass
@@ -38,35 +37,33 @@ class PeriodoBase(SQLModel):
 class Periodo(PeriodoBase, table=True):
     pass
 
-class ServicioBase(SQLModel):
-    fechaOperacion: Optional[str] = Field(default=None)
-    NIFCliente: Optional[str] = Field(default=None, primary_key=True)
+class SesionBase(SQLModel):
+    idSesion: int  = Field(default=None, primary_key=True)
+    fechaOperacion: Optional[date] = Field(default=None)
+    NIFCliente: Optional[str] = Field(default=None)
     concepto: Optional[str] = Field(default=None)
-    base: Optional[str] = Field(default=None)
-    total: Optional[str] = Field(default=None)
-    IDPeriodo: Optional[str] = Field(default=None, primary_key=True)
-    IDProducto: Optional[str] = Field(default=None, primary_key=True)
-    valorBusqueda: Optional[str] = Field(default=None)
+    base: Optional[Decimal] = Field(default=None)
+    total: Optional[Decimal] = Field(default=None)
+    IDPeriodo: Optional[str] = Field(default=None)
+    IDProducto: Optional[str] = Field(default=None)
     facturado: Optional[str] = Field(default=None)
     fechaPago: Optional[str] = Field(default=None)
-    totalPagado: Optional[str] = Field(default=None)
-    pendiente: Optional[str] = Field(default=None)
+    totalPagado: Optional[Decimal] = Field(default=None)
 
-class Servicio(ServicioBase, table=True):
+class Sesion(SesionBase, table=True):
     pass
 
 class FacturaBase(SQLModel):
-    valorBusqueda: Optional[str] = Field(default=None)
-    fechaEmision: Optional[str] = Field(default=None)
-    fechaPago: Optional[str] = Field(default=None)
-    numero: str  = Field(default=None, primary_key=True)
+    numeroFactura: str  = Field(default=None, primary_key=True)
+    fechaEmision: Optional[datetime] = Field(default=None)
+    fechaPago: Optional[datetime] = Field(default=None)
     NIFCliente: Optional[str] 
     IDProducto: Optional[str]
     concepto: Optional[str] = Field(default=None)
     estado: Optional[str] = Field(default=None)
     esRectificativa: Optional[str] = Field(default=None)
-    base: Optional[str] = Field(default=None)
-    total: Optional[str] = Field(default=None)
+    base: Optional[Decimal] = Field(default=None)
+    total: Optional[Decimal] = Field(default=None)
     metodoPago: Optional[str] = Field(default=None)
     etiquetas: Optional[str] = Field(default=None)
     trimestre: Optional[str] = Field(default=None)
