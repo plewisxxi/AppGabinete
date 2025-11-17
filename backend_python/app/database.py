@@ -1,5 +1,6 @@
 from os import getenv
-from sqlmodel import create_engine, SQLModel
+from typing import Generator
+from sqlmodel import SQLModel, create_engine, Session
 from dotenv import load_dotenv
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
@@ -18,9 +19,23 @@ new_query = urlencode({k: v[0] for k, v in qs.items()})
 DATABASE_URL = urlunparse(parsed._replace(query=new_query))
 
 # create engine; connect_args left empty because sslmode is in the URL
-engine = create_engine(DATABASE_URL, echo=False, connect_args={"connect_timeout": 10})
-def init_db():
-    # Import the models module (avoid wildcard import inside a function); importing the module
-    # ensures model classes are registered with SQLModel.metadata.
-    from . import models  # noqa: F401
-    SQLModel.metadata.create_all(engine)
+_engine_kwargs = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, echo=False, **_engine_kwargs)
+
+
+def get_engine():
+    return engine
+
+
+def init_db() -> None:
+    # crea tablas a partir de los modelos (útil en dev)
+    SQLModel.metadata.create_all(bind=engine)
+
+
+def get_session() -> Generator[Session, None, None]:
+    """
+    Dependencia para FastAPI: yield a SQLModel Session
+    Uso: session: Session = Depends(get_session)
+    """
+    with Session(engine) as session:
+        yield session

@@ -47,7 +47,7 @@ class SesionBase(SQLModel):
     IDPeriodo: Optional[str] = Field(default=None)
     IDProducto: Optional[str] = Field(default=None)
     facturado: Optional[str] = Field(default=None)
-    fechaPago: Optional[str] = Field(default=None)
+    fechaPago: Optional[date] = Field(default=None)
     totalPagado: Optional[Decimal] = Field(default=None)
 
 class Sesion(SesionBase, table=True):
@@ -55,8 +55,8 @@ class Sesion(SesionBase, table=True):
 
 class FacturaBase(SQLModel):
     numeroFactura: str  = Field(default=None, primary_key=True)
-    fechaEmision: Optional[datetime] = Field(default=None)
-    fechaPago: Optional[datetime] = Field(default=None)
+    fechaEmision: Optional[date] = Field(default=None)
+    fechaPago: Optional[date] = Field(default=None)
     NIFCliente: Optional[str] 
     IDProducto: Optional[str]
     concepto: Optional[str] = Field(default=None)

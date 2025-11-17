@@ -1,9 +1,9 @@
 from typing import List, Dict, Any, Optional
 from decimal import Decimal
-from fastapi import APIRouter, HTTPException, Body, Query
+from fastapi import APIRouter, HTTPException, Body, Query, Depends, Request
 from sqlmodel import Session, select
-from sqlalchemy import func
-from app.database import engine
+from sqlalchemy import func, asc, desc, or_
+from app.database import engine, get_session
 from app import models
 
 Factura = models.Factura
@@ -161,3 +161,52 @@ def report_summary_by_contact():
             for r in rows
         ]
         return result
+
+
+@router.get("")
+def list_facturas(request: Request,
+                  page: int = 1,
+                  page_size: int = 50,
+                  sort: Optional[str] = None,
+                  order: Optional[str] = "asc",
+                  q: Optional[str] = None,
+                  session: Session = Depends(get_session)):
+    params = dict(request.query_params)
+    filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
+
+    stmt = select(Factura)
+
+    for field, value in filters.items():
+        if hasattr(Factura, field):
+            col = getattr(Factura, field)
+            try:
+                stmt = stmt.where(col.ilike(f"%{value}%"))
+            except Exception:
+                stmt = stmt.where(col == value)
+
+    if q:
+        ors = []
+        for fname in Factura.__fields__.keys():
+            if hasattr(Factura, fname):
+                col = getattr(Factura, fname)
+                try:
+                    ors.append(col.ilike(f"%{q}%"))
+                except Exception:
+                    pass
+        if ors:
+            stmt = stmt.where(or_(*ors))
+
+    total_res = session.exec(select(func.count()).select_from(Factura)).one()
+    try:
+        total = int(total_res[0])
+    except Exception:
+        total = int(total_res)
+
+    if sort and hasattr(Factura, sort):
+        col = getattr(Factura, sort)
+        stmt = stmt.order_by(desc(col) if (order and order.lower() == "desc") else asc(col))
+
+    offset = max(0, (page - 1)) * page_size
+    items = session.exec(stmt.offset(offset).limit(page_size)).all()
+
+    return {"data": items, "total": total}

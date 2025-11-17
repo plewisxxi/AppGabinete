@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Servicio del Backend (API)
+  gabin-backend:
+    # Nombre del contenedor para que sea fácil de identificar
+    container_name: appgabinete-backend
+    # Ruta al Dockerfile del backend
+    build: ./backend_python
+    # Archivo con las variables de entorno (como la URL de la base de datos)
+    # Asegúrate de que este archivo exista y esté configurado.
+    env_file:
+      - ./backend_python/.env
+    # No es necesario exponer puertos (expose/ports) si solo se accede desde otro contenedor
+    # en la misma red. Lo dejamos para poder probarlo desde nuestro navegador en localhost:4000.
+    ports:
+      - "4000:4000"
+    #networks:
+    #  - app-net
+
+  # Servicio del Frontend (Aplicación Web)
+  gabin-frontend:
+    container_name: appgabinete-frontend
+    # Ruta al Dockerfile del frontend
+    build: ./appgabin_frontend
+    ports:
+      - "8080:80" # Mapeamos el puerto 80 del contenedor al 8080 de nuestra máquina
+    environment:
+      # Aquí está la magia: Docker Compose permite que los servicios se comuniquen
+      # usando su nombre. La URL del API será http://<nombre_servicio_backend>:<puerto_contenedor>
+
+      # ENTENDER ESTO !!!!!!! 
+      # Parece ser que el hace la llamada desde una app web estatica es el navegador (no el contenedor del frontend)
+      # por eso hay que dar una url que pueda resolver el nevegaador (http://gabin-backend solo la conoce el contenedor porque composer se lo ha dicho)
+      # PREGUNTA: esto mismo pasaria en una app que se ejecuta en el servidor (nodejs por ejemplo) ? o en ese caso si que podria ser la url http://gabin-backend:4000/api
+  
+      #- API_URL=http://gabin-backend:4000/api
+      - API_URL=http://localhost:4000/api               
+    depends_on:
+      - gabin-backend # Le decimos a Docker que inicie el backend antes que el frontend
+    #networks:
+    #  - app-net
+
+# --- Definición de la Red --- 
+# ESTO ES OPCIONAL - PARECE QUE LA RED SE MONTA SOLA POR DEFECTO - SI SEPONE TAMBIEN FUNCIONA
+
+#networks:
+#  app-net:
+#    driver: bridge # Red interna para que los contenedores se comuniquen  

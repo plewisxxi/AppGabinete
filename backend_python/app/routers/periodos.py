@@ -1,7 +1,8 @@
-from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query, Body
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query, Body, Depends, Request
 from sqlmodel import Session, select
-from app.database import engine
+from sqlalchemy import func, asc, desc, or_
+from app.database import engine, get_session
 from app.models import Periodo
 import logging
 
@@ -69,3 +70,51 @@ def delete_periodo(idperiodo: str):
         s.delete(item)
         s.commit()
         return {"deleted": True}
+
+@router.get("")
+def list_periodos(request: Request,
+                  page: int = 1,
+                  page_size: int = 50,
+                  sort: Optional[str] = None,
+                  order: Optional[str] = "asc",
+                  q: Optional[str] = None,
+                  session: Session = Depends(get_session)):
+    params = dict(request.query_params)
+    filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
+
+    stmt = select(Periodo)
+
+    for field, value in filters.items():
+        if hasattr(Periodo, field):
+            col = getattr(Periodo, field)
+            try:
+                stmt = stmt.where(col.ilike(f"%{value}%"))
+            except Exception:
+                stmt = stmt.where(col == value)
+
+    if q:
+        ors = []
+        for fname in Periodo.__fields__.keys():
+            if hasattr(Periodo, fname):
+                col = getattr(Periodo, fname)
+                try:
+                    ors.append(col.ilike(f"%{q}%"))
+                except Exception:
+                    pass
+        if ors:
+            stmt = stmt.where(or_(*ors))
+
+    total_res = session.exec(select(func.count()).select_from(Periodo)).one()
+    try:
+        total = int(total_res[0])
+    except Exception:
+        total = int(total_res)
+
+    if sort and hasattr(Periodo, sort):
+        col = getattr(Periodo, sort)
+        stmt = stmt.order_by(desc(col) if (order and order.lower() == "desc") else asc(col))
+
+    offset = max(0, (page - 1)) * page_size
+    items = session.exec(stmt.offset(offset).limit(page_size)).all()
+
+    return {"data": items, "total": total}

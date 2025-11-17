@@ -214,4 +214,8 @@ SIGUIENTES PASOS
 
  . Securizar el contenedor (no publico)  -- DONE!!!
  
- 
+ +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ [15/11/2025] CREAR AMBAS IMAGENES (FRONT Y BACK) CON EL COMPOSE Y CREANDO UNA RED
+ +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+1. MOVERSE A LA CARPETA DONDE ESTA EL ARCHIVO DOCKER-COMPOSE.YML
+2. EJECUTAR: docker-compose up --build

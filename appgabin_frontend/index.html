@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AppGabinete - Gestión</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header>
+        <h1>Gestión AppGabinete</h1>
+    </header>
+
+    <main>
+        <nav class="tabs">
+            <button class="tab-link" data-tab="contactos">Contactos</button>            
+            <button class="tab-link active" data-tab="sesiones">Sesiones</button>
+            <button class="tab-link" data-tab="facturas">Facturas</button>
+            <button class="tab-link" data-tab="productos">Productos</button>
+            <button class="tab-link" data-tab="periodos">Periodos</button>
+        </nav>
+
+        <!-- Contenido de las Pestañas -->
+
+        <div id="contactos" class="tab-content">
+            <h2>Contactos</h2>
+            <div class="actions">
+                <button id="btn-new-contacto">Nuevo Contacto</button>
+            </div>
+            <div id="contactos-table-container" class="table-container"></div>
+        </div>
+
+        <div id="sesiones" class="tab-content active">
+            <h2>Sesiones</h2>
+            <div class="actions">
+                <button id="btn-new-sesion">Nueva Sesión</button>
+                <button id="btn-facturar-sesiones" class="btn-primary">Facturar Seleccionadas</button>
+            </div>
+            <div id="sesiones-table-container" class="table-container"></div>
+        </div>
+
+        <div id="facturas" class="tab-content">
+            <h2>Facturas</h2>
+            <div class="actions">
+                <button id="btn-new-factura">Nueva Factura</button>
+            </div>
+            <div id="facturas-table-container" class="table-container"></div>
+        </div>
+
+ 
+
+        <div id="productos" class="tab-content">
+            <h2>Productos</h2>
+            <div class="actions">
+                <button id="btn-new-producto">Nuevo Producto</button>
+            </div>
+            <div id="productos-table-container" class="table-container"></div>
+        </div>
+
+        <div id="periodos" class="tab-content">
+            <h2>Periodos</h2>
+            <div class="actions">
+                <button id="btn-new-periodo">Nuevo Periodo</button>
+            </div>
+            <div id="periodos-table-container" class="table-container"></div>
+        </div>
+    </main>
+
+    <!-- Modal Genérico para Formularios -->
+    <div id="form-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h3 id="modal-title"></h3>
+            <form id="modal-form">
+                <!-- Los campos del formulario se insertarán aquí dinámicamente -->
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="api.js"></script>
+    <script src="ui.js"></script>
+    <script src="app.js"></script>
+
+</body>
+</html>

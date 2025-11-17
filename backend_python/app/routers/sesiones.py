@@ -1,9 +1,9 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Query,Body
+from fastapi import APIRouter, HTTPException, Query, Body, Depends, Request
 from sqlmodel import Session, select
 from sqlalchemy import and_
-from sqlalchemy import func
-from app.database import engine
+from sqlalchemy import func, asc, desc, or_
+from app.database import engine, get_session
 from app import models
 import logging
 
@@ -16,76 +16,61 @@ Contacto = models.Contacto
 Producto = models.Producto
 Periodo = models.Periodo
 
-router = APIRouter(prefix="/api/sesiones", tags=["sesiones"])
+router = APIRouter()
 
 
-@router.get("/", response_model=List[Sesion])
+@router.get("")
 def list_sesiones(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1),
+    sort: Optional[str] = None,
+    order: Optional[str] = "asc",
+    q: Optional[str] = None,
+    session: Session = Depends(get_session),
 ):
-    with Session(engine) as s:
-        stmt = select(Sesion).offset((page - 1) * page_size).limit(page_size)
-        #stmt = select(Sesion)
-        #logging.debug(stmt)
-        sesiones = s.exec(stmt).all()
+    params = dict(request.query_params)
+    filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
-        #results: List[Dict[str, Any]] = []
-        #for srv in sesiones:
-        #    data = srv.dict()  # usar .dict() en vez de __dict__
+    stmt = select(Sesion)
 
-            #nif_cliente = getattr(srv, "NIFCliente", None)
-            #id_producto = getattr(srv, "IDProducto", None)
-            #id_periodo = getattr(srv, "IDPeriodo", None)
-            
-            #logging.debug(f"nif_cliente={nif_cliente}, id_producto={id_producto}, id_periodo={id_periodo}")
+    # field filters
+    for field, value in filters.items():
+        if hasattr(Sesion, field):
+            col = getattr(Sesion, field)
+            try:
+                stmt = stmt.where(col.ilike(f"%{value}%"))
+            except Exception:
+                stmt = stmt.where(col == value)
 
-            # numFactura_value = None
-            # fechaFactura_value=None
-            # totalFactura_Value=None 
-            # /*
-            # if nif_cliente is not None and id_producto is not None and id_periodo is not None:
-            #     # asegurar tipo del periodo
-            #     try:
-            #         id_periodo_cast = int(id_periodo)
-            #     except Exception:
-            #         id_periodo_cast = id_periodo
+    # global q search across string-like columns
+    if q:
+        ors = []
+        for col in Sesion.__table__.columns:
+            try:
+                ors.append(getattr(Sesion, col.name).ilike(f"%{q}%"))
+            except Exception:
+                continue
+        if ors:
+            stmt = stmt.where(or_(*ors))
 
-            #     factura_stmt = select(Factura).where(
-            #         and_(
-            #             getattr(Factura, "NIFCliente") == nif_cliente,
-            #             getattr(Factura, "IDProducto") == id_producto,
-            #             getattr(Factura, "IDPeriodo") == id_periodo_cast,
-            #         )
-            #     )
-            #     found = s.exec(factura_stmt).all()
-            #     numerosFra = [getattr(f, "numeroFactura", None) for f in found if getattr(f, "numeroFactura", None) is not None]
-            #     fechasFra = [getattr(f, "fechaPago", None) for f in found if getattr(f, "fechaPago", None) is not None]
-            #     totalFra = [getattr(f, "total", None) for f in found if getattr(f, "total", None) is not None]
-                
-            #     # muestra log con datos nif_cliente, id_producto, id_periodo, numeros
-            #     #logging.debug(f"nif_cliente={nif_cliente}, id_producto={id_producto}, id_periodo={id_periodo}, numeros={numeros}")
+    # total count
+    total_res = session.exec(select(func.count()).select_from(Sesion)).one()
+    try:
+        total = int(total_res[0])
+    except Exception:
+        total = int(total_res)
 
-            #     if len(numerosFra) == 0:
-            #         numFactura_value = None
-            #         fechaFactura_value=None
-            #         totalFactura_Value=None
-            #     elif len(numerosFra) == 1:
-            #         numFactura_value = numerosFra[0]
-            #         fechaFactura_value=fechasFra[0] 
-            #         totalFactura_Value=totalFra[0]
-            #     else:
-            #         numFactura_value = numerosFra
-            #         fechaFactura_value=fechasFra
-            #         totalFactura_Value=totalFra
+    # ordering
+    if sort and hasattr(Sesion, sort):
+        col = getattr(Sesion, sort)
+        stmt = stmt.order_by(desc(col) if (order and order.lower() == "desc") else asc(col))
 
-            # data["numFactura"] = numFactura_value
-            # data["fechaFactura"] = fechaFactura_value
-            # data["totalFactura"] = totalFactura_Value
-            # results.append(data)
-            
-        #return results
-        return sesiones
+    # pagination
+    offset = max(0, (page - 1)) * page_size
+    items = session.exec(stmt.offset(offset).limit(page_size)).all()
+
+    return {"data": items, "total": total}
 
 #@router.get("/{id}", response_model=Dict[str, Any])
 @router.get("/{id}", response_model=Sesion)
@@ -94,53 +79,6 @@ def get_sesion(id: int):
         ses = s.get(Sesion, id)
         if not ses:
             raise HTTPException(status_code=404, detail="Sesion not found")
-
-        # data = srv.dict()  # usar .dict()
-
-        # nif_cliente = getattr(ses, "NIFCliente", None)
-        # id_producto = getattr(ses, "IDProducto", None)
-        # id_periodo = getattr(ses, "IDPeriodo", None)
-
-        # numFactura_value = None
-        # fechaFactura_value=None
-        # totalFactura_Value=None
-
-        # if nif_cliente is not None and id_producto is not None and id_periodo is not None:
-        #     try:
-        #         id_periodo_cast = int(id_periodo)
-        #     except Exception:
-        #         id_periodo_cast = id_periodo
-
-        #     factura_stmt = select(Factura).where(
-        #         and_(
-        #             getattr(Factura, "NIFCliente") == nif_cliente,
-        #             getattr(Factura, "IDProducto") == id_producto,
-        #             getattr(Factura, "IDPeriodo") == id_periodo_cast,
-        #         )
-        #     )
-        #     found = s.exec(factura_stmt).all()
-        #     numerosFra = [getattr(f, "numeroFactura", None) for f in found if getattr(f, "numero", None) is not None]
-        #     fechasFra = [getattr(f, "fechaPago", None) for f in found if getattr(f, "fechaPago", None) is not None]
-        #     totalFra = [getattr(f, "total", None) for f in found if getattr(f, "total", None) is not None]
- 
-        #     if len(numerosFra) == 0:
-        #         numFactura_value = None
-        #         fechaFactura_value=None
-        #         totalFactura_Value=None
-        #     elif len(numerosFra) == 1:
-        #         numFactura_value = numerosFra[0]
-        #         fechaFactura_value=fechasFra[0] 
-        #         totalFactura_Value=totalFra[0]
-        #     else:
-        #         numFactura_value = numerosFra
-        #         fechaFactura_value=fechasFra
-        #         totalFactura_Value=totalFra
-
-        # data["numFactura"] = numFactura_value
-        # data["fechaFactura"] = fechaFactura_value
-        # data["totalFactura"] = totalFactura_Value
-        
-        # return data
 
         return ses
 
