@@ -1,52 +1,59 @@
 // ...new file...
 export default {
   contactos: [
-    "NIF",
-    "Nombre",
-    "Email",
-    "Telefono",
-    "Direccion",
-    "Poblacion",
-    "codigoPostal",
-    "Pais",
-    "IBAN",
-    "SWIFT_BIC"
+    { field: "NIF", label: "NIF", width: "100px" },
+    { field: "Nombre", label: "Nombre", width: "250px", isTitle: true },
+    { field: "Email", label: "Email", width: "250px" },
+    { field: "Telefono", label: "Telefono", width: "120px" },
+    { field: "Direccion", label: "Direccion", width: "250px" },
+    { field: "Poblacion", label: "Poblacion", width: "150px" },
+    { field: "codigoPostal", label: "CP", width: "50px" },
+    { field: "Pais", label: "Pais", width: "100px" }
+    //{ field: "IBAN", label: "IBAN" },
+    //{ field: "SWIFT_BIC", label: "SWIFT_BIC" }
   ],
   productos: [
-    "IDProducto",
-    "descProducto"
+    { field: "IDProducto", label: "ID", width: "80px" },
+    { field: "descProducto", label: "Descripción", width: "300px", isTitle: true }
   ],
   periodos: [
-    "IDPeriodo",
-    "descPeriodo"
+    { field: "IDPeriodo", label: "ID" },
+    { field: "descPeriodo", label: "Descripción", isTitle: true },
+    { field: "fechaInicioPeriodo", label: "Fecha Inicio", type: "date" }
   ],
   sesiones: [
-    "idSesion",
-    "fechaOperacion",
-    "NIFCliente",
-    "concepto",
-    "base",
-    "total",
-    "IDPeriodo",
-    "IDProducto",
-    "facturado",
-    "fechaPago",
-    "totalPagado"
+    { field: "idSesion", label: "ID", readOnly: true, row: 1, width: "25%" },
+    { field: "fechaOperacion", label: "Fecha", type: "date", row: 2, width: "20%" },
+    { field: "IDPeriodo", label: "Periodo", type: "select", source: "periodos", displayKey: "descPeriodo", valueKey: "IDPeriodo", row: 2, width: "30%" },
+    { field: "NIFCliente", label: "NIF", type: "datalist", source: "contactos", displayKey: "Nombre", valueKey: "NIF", row: 3, width: "20%" },
+    { field: "nombreContacto", label: "Nombre Contacto", readOnly: true, row: 3, width: "80%" },
+    { field: "IDProducto", label: "Producto", type: "select", source: "productos", displayKey: "descProducto", valueKey: "IDProducto", row: 4, width: "30%" },
+    { field: "concepto", label: "Concepto", row: 4, width: "70%" },
+    { field: "base", label: "Base", type: "money", step: "1", row: 5, width: "25%" },
+    { field: "total", label: "Total", type: "money", step: "1", row: 5, width: "25%" },
+    { type: "separator", row: 6 },
+    { type: "title", label: "Datos Facturación", row: 7 },
+    { type: "separator", row: 8 },
+    { field: "facturado", label: "Facturado", readOnly: true, row: 9, width: "20%" },
+    { field: "numeroFactura", label: "Nº Factura", readOnly: true, row: 9, width: "20%" },
+    { field: "fechaPago", label: "Fecha de Pago", readOnly: true, row: 9, width: "30%" },
+    { field: "totalPagado", label: "Total Pagado", readOnly: true, row: 10, width: "25%" },
+    { field: "pendiente", label: "Pendiente", type: "money", readOnly: true, isComputed: true, row: 10, width: "25%" }
   ],
   facturas: [
-    "numeroFactura",
-    "fechaEmision",
-    "fechaPago",
-    "NIFCliente",
-    "IDProducto",
-    "concepto",
-    "estado",
-    "esRectificativa",
-    "base",
-    "total",
-    "metodoPago",
-    "etiquetas",
-    "trimestre",
-    "IDPeriodo"
+    { field: "numeroFactura", label: "Número" },
+    { field: "fechaEmision", label: "Fecha de Emisión" },
+    { field: "fechaPago", label: "Fecha de Pago" },
+    { field: "NIFCliente", label: "NIF" },
+    { field: "IDProducto", label: "IDProducto" },
+    { field: "concepto", label: "Concepto" },
+    { field: "estado", label: "Estado" },
+    { field: "esRectificativa", label: "Rectificativa" },
+    { field: "base", label: "Base" },
+    { field: "total", label: "Total" },
+    { field: "metodoPago", label: "Método de Pago" },
+    //{ field: "etiquetas", label: "Etiquetas" },
+    { field: "trimestre", label: "Trimestre" },
+    { field: "IDPeriodo", label: "IDPeriodo" }
   ]
 };

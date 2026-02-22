@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Debug Frontend2 (Chrome)",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/appgabin_frontend2",
+            "sourceMaps": true,
+            "userDataDir": true
+        },
+        {
+            "type": "msedge",
+            "request": "launch",
+            "name": "Debug Frontend2 (Edge)",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/appgabin_frontend2",
+            "sourceMaps": true,
+            "userDataDir": false
+        }
+    ]
+}

@@ -10,6 +10,10 @@ const API = {
     if (params.sort) url.searchParams.set("sort", params.sort);
     if (params.order) url.searchParams.set("order", params.order);
     if (params.q) url.searchParams.set("q", params.q);
+    if (params.year) url.searchParams.set("year", String(params.year));
+    if (params.quarter) url.searchParams.set("quarter", String(params.quarter));
+    if (params.start_date) url.searchParams.set("start_date", params.start_date);
+    if (params.end_date) url.searchParams.set("end_date", params.end_date);
 
     if (params.filters && typeof params.filters === "object") {
       Object.entries(params.filters).forEach(([k, v]) => {
@@ -29,10 +33,26 @@ const API = {
       throw new Error("Respuesta no JSON: " + t.slice(0, 200));
     });
 
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+      return { data: data, total: data.length };
+    }
+    // Check if it's the new format { data: [], total: N, aggregates: {} }
+    if (data.data && Array.isArray(data.data)) {
+      return {
+        data: data.data,
+        total: (typeof data.total === 'number' ? data.total : data.data.length),
+        aggregates: data.aggregates || null
+      };
+    }
+
+    // Fallback for other structures
     const arr = Object.values(data).find(v => Array.isArray(v));
-    if (arr) return arr;
-    return [];
+    if (arr) return {
+      data: arr,
+      total: (typeof data.total === 'number' ? data.total : arr.length),
+      aggregates: data.aggregates || null
+    };
+    return { data: [], total: 0 };
   },
 
   async fetchOne(endpoint, id) {

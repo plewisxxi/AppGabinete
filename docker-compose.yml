@@ -20,9 +20,9 @@ services:
 
   # Servicio del Frontend (Aplicación Web)
   gabin-frontend:
-    container_name: appgabinete-frontend
+    container_name: appgabinete-frontend2
     # Ruta al Dockerfile del frontend
-    build: ./appgabin_frontend
+    build: ./appgabin_frontend2
     ports:
       - "8080:80" # Mapeamos el puerto 80 del contenedor al 8080 de nuestra máquina
     environment:

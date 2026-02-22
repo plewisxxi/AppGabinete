@@ -2,15 +2,42 @@ import React, { useEffect, useState, useRef } from "react";
 import API from "../api";
 import EntityForm from "./EntityForm";
 import modelsMap from "../modelsMap";
+import ActionMenu from "./ActionMenu";
 
 export default function EntityList({ endpoint }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [showNew, setShowNew] = useState(false);
+  const [viewing, setViewing] = useState(null);
   const [columns, setColumns] = useState([]);
   const [error, setError] = useState(null);
   const requestIdRef = useRef(0);
+
+  // Selection
+  const [selectedIds, setSelectedIds] = useState(new Set()); // Set of selected IDs
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [cloneTargetPeriod, setCloneTargetPeriod] = useState("");
+  const [periodOptions, setPeriodOptions] = useState([]);
+
+  function getColField(c) { return typeof c === 'object' ? c.field : c; }
+  function getColLabel(c) { return typeof c === 'object' ? (c.label || c.field) : c; }
+  function getColWidth(c) { return (typeof c === 'object' && c.width) ? c.width : "auto"; }
+
+  function getTitleValue(item, cols) {
+    if (!item || !cols) return "";
+    const titleCol = cols.find(c => typeof c === 'object' && c.isTitle);
+    if (titleCol) {
+      const val = item[titleCol.field];
+      if (val) return `- ${val}`;
+    }
+    // Fallback if no isTitle defined, try to find a name-like field or first string
+    const fallback = cols.find(c => {
+      const f = getColField(c);
+      return typeof item[f] === 'string' && (f.toLowerCase().includes("nombre") || f.toLowerCase().includes("desc") || f.toLowerCase().includes("alias"));
+    });
+    if (fallback) return `- ${item[getColField(fallback)]}`;
+    return "";
+  }
 
   // pagination & sorting & filtering
   const [page, setPage] = useState(1);
@@ -19,10 +46,13 @@ export default function EntityList({ endpoint }) {
 
   const [sortField, setSortField] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
+  const [totalItems, setTotalItems] = useState(0);
 
   // applied filters / search used by load()
   const [filters, setFilters] = useState({}); // { column: value }
   const [globalQ, setGlobalQ] = useState("");
+  const [filterYear, setFilterYear] = useState("");
+  const [filterPeriod, setFilterPeriod] = useState(""); // Q1-Q4 or M1-M12
 
   // local input buffers (do not trigger requests on each keystroke)
   const [filterInputs, setFilterInputs] = useState({});
@@ -33,19 +63,34 @@ export default function EntityList({ endpoint }) {
     setColumns([]);
     setError(null);
     setEditing(null);
-    setShowNew(false);
+    setViewing(null);
+    setShowNewWithOptions(false);
     setPage(1);
+    setPage(1);
+    setTotalItems(0);
+    setSelectedIds(new Set());
+    setShowCloneModal(false);
+    setCloneTargetPeriod("");
+    setFilters({});
+    setFilterInputs({});
     setFilters({});
     setFilterInputs({});
     setGlobalQ("");
     setGlobalInput("");
+    setFilterYear("");
+    setFilterPeriod("");
     setSortField(null);
     setSortDir("asc");
+    setShowNewWithOptions(false);
+    setEditing(null);
+    setViewing(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod]);
+
+  const [aggregates, setAggregates] = useState(null);
 
   async function load() {
     const reqId = ++requestIdRef.current;
@@ -53,51 +98,32 @@ export default function EntityList({ endpoint }) {
     setError(null);
 
     try {
+      // Calculate date range from year and period
+      let start_date, end_date;
+      if (filterYear) {
+        const dateRange = calculateDateRange(filterYear, filterPeriod);
+        start_date = dateRange.start;
+        end_date = dateRange.end;
+      }
+
       const params = {
         sort: sortField || undefined,
         order: sortDir || undefined,
         q: globalQ || undefined,
-        filters: filters && Object.keys(filters).length ? filters : undefined
+        filters: filters && Object.keys(filters).length ? filters : undefined,
+        start_date: start_date || undefined,
+        end_date: end_date || undefined
       };
-      console.debug(`[EntityList] fetching /api/${endpoint} page=${page} page_size=${pageSize} params=`, params);
-      const data = await API.fetchList(endpoint, page, pageSize, params);
+      const result = await API.fetchList(endpoint, page, pageSize, params);
       if (reqId !== requestIdRef.current) return;
 
-      const arr = Array.isArray(data) ? data : (Array.isArray(Object.values(data || {}).find(v => Array.isArray(v))) ? Object.values(data).find(v => Array.isArray(v)) : []);
-      // client-side fallback filtering/sorting if backend didn't apply everything
-      let final = arr || [];
+      const arr = result.data || [];
+      const totalCount = result.total || 0;
+      setTotalItems(totalCount);
+      setAggregates(result.aggregates || null);
 
-      // apply column filters locally (fallback)
-      Object.entries(filters || {}).forEach(([k, v]) => {
-        if (v === null || v === undefined || String(v).trim() === "") return;
-        final = final.filter(it => {
-          const val = it[k];
-          if (val === null || val === undefined) return false;
-          return String(val).toLowerCase().includes(String(v).toLowerCase());
-        });
-      });
-
-      // apply global search
-      if (globalQ && String(globalQ).trim() !== "") {
-        const q = String(globalQ).toLowerCase();
-        final = final.filter(it => Object.values(it).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(q)));
-      }
-
-      // client-side sort fallback
-      if (sortField) {
-        final = final.slice().sort((a,b) => {
-          const va = a?.[sortField];
-          const vb = b?.[sortField];
-          if (va == null && vb == null) return 0;
-          if (va == null) return sortDir === "asc" ? -1 : 1;
-          if (vb == null) return sortDir === "asc" ? 1 : -1;
-          if (typeof va === "number" && typeof vb === "number") return sortDir === "asc" ? va - vb : vb - va;
-          return sortDir === "asc" ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-        });
-      }
-
-      setItems(final);
-      setHasMore(Array.isArray(final) && final.length >= pageSize);
+      setItems(arr);
+      setHasMore(Array.isArray(arr) && arr.length >= pageSize);
 
       if (modelsMap[endpoint]) setColumns(modelsMap[endpoint]);
       else deriveColumns(arr || []);
@@ -105,10 +131,59 @@ export default function EntityList({ endpoint }) {
       console.error("[EntityList] error fetching", e);
       setItems([]);
       setColumns([]);
+      setAggregates(null);
       setError(e.message || String(e));
     } finally {
       if (reqId === requestIdRef.current) setLoading(false);
     }
+  }
+
+  function calculateDateRange(year, period) {
+    /**
+     * Calculate start and end dates for a given year and period.
+     * Period can be:
+     * - Q1, Q2, Q3, Q4 (quarters)
+     * - M1, M2, ..., M12 (months)
+     * - Empty/Null: Full year
+     * Returns dates in DD-MM-YYYY format.
+     */
+    const y = parseInt(year);
+    if (!period) {
+      // Full year
+      return {
+        start: `01-01-${y}`,
+        end: `31-12-${y}`
+      };
+    }
+
+    let startMonth, endMonth, startDay, endDay;
+
+    if (period.startsWith('Q')) {
+      // Quarter
+      const quarter = parseInt(period.substring(1));
+      startMonth = (quarter - 1) * 3 + 1;
+      endMonth = startMonth + 2;
+      startDay = 1;
+      // Last day of the third month
+      endDay = new Date(y, endMonth, 0).getDate();
+    } else if (period.startsWith('M')) {
+      // Month
+      const month = parseInt(period.substring(1));
+      startMonth = month;
+      endMonth = month;
+      startDay = 1;
+      // Last day of the month
+      endDay = new Date(y, month, 0).getDate();
+    } else {
+      return { start: null, end: null };
+    }
+
+    // Format as DD-MM-YYYY
+    const pad = (n) => String(n).padStart(2, '0');
+    const start = `${pad(startDay)}-${pad(startMonth)}-${y}`;
+    const end = `${pad(endDay)}-${pad(endMonth)}-${y}`;
+
+    return { start, end };
   }
 
   function deriveColumns(data) {
@@ -157,15 +232,13 @@ export default function EntityList({ endpoint }) {
         return next;
       });
       setPage(1);
-      // load will be triggered by useEffect on filters change, but call explicitly to be immediate
-      setTimeout(() => load(), 0);
+      // load will be triggered by useEffect on filters change
     }
     if (e.key === "Escape") {
       // clear input and filter for this column
       setFilterInputs(f => ({ ...f, [col]: "" }));
       setFilters(f => { const next = { ...f }; delete next[col]; return next; });
       setPage(1);
-      setTimeout(() => load(), 0);
     }
   }
 
@@ -178,18 +251,117 @@ export default function EntityList({ endpoint }) {
       const q = (globalInput ?? "").trim();
       setGlobalQ(q);
       setPage(1);
-      setTimeout(() => load(), 0);
     }
     if (e.key === "Escape") {
       setGlobalInput("");
       setGlobalQ("");
       setPage(1);
-      setTimeout(() => load(), 0);
     }
   }
 
-  function startEdit(item) { setEditing(item); }
-  function startNew() { setShowNew(true); }
+  const [fieldOptions, setFieldOptions] = useState({});
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const [showNewWithOptions, setShowNewWithOptions] = useState(false);
+
+  async function loadFieldOptions(cols) {
+    if (!cols || !cols.length) {
+      console.log("[EntityList] loadFieldOptions called with empty cols");
+      return;
+    }
+    // Get unique sources that haven't been loaded yet
+    const sourcesToLoad = new Set();
+    cols.forEach(c => {
+      if (c.source && !fieldOptions[c.source]) {
+        sourcesToLoad.add(c.source);
+      }
+    });
+
+    console.log("[EntityList] loadFieldOptions. Sources to load:", Array.from(sourcesToLoad));
+    console.log("[EntityList] Current fieldOptions state:", fieldOptions);
+
+    if (sourcesToLoad.size === 0) {
+      console.log("[EntityList] All sources already loaded");
+      return;
+    }
+
+    setLoadingOptions(true);
+    const newOptions = {};
+    for (const source of sourcesToLoad) {
+      try {
+        console.log(`[EntityList] fetching options for ${source}...`);
+        const result = await API.fetchList(source, 1, 1000);
+        console.log(`[EntityList] raw result for ${source}:`, result);
+
+        // API.fetchList returns { data: [], total: N }
+        let list = result.data;
+        if (!Array.isArray(list)) {
+          console.warn(`[EntityList] ${source} returned non-array data:`, result);
+          list = Array.isArray(result) ? result : [];
+        }
+
+        console.log(`[EntityList] loaded ${list.length} options for ${source}:`, list);
+        newOptions[source] = list;
+      } catch (err) {
+        console.error(`Error loading options for ${source}:`, err);
+        // Even if error, set empty array so we don't retry
+        newOptions[source] = [];
+      }
+    }
+    console.log("[EntityList] Setting fieldOptions:", newOptions);
+    setFieldOptions(prev => {
+      const updated = { ...prev, ...newOptions };
+      console.log("[EntityList] fieldOptions updated to:", updated);
+      return updated;
+    });
+    setLoadingOptions(false);
+  }
+
+  async function startEdit(item) {
+    try {
+      console.log("[EntityList] startEdit called for item:", item);
+      setEditing(item);
+      // IMPORTANT: Always use modelsMap for form, not columns (which may be empty)
+      const cols = modelsMap[endpoint] || [];
+      console.log("[EntityList] columns from modelsMap:", cols.length, "columns");
+
+      if (cols.length) {
+        console.log("[EntityList] loading field options for sources:", cols.filter(c => c.source).map(c => c.source));
+        await loadFieldOptions(cols);
+        console.log("[EntityList] field options loaded");
+      }
+    } catch (err) {
+      console.error("[EntityList] Error in startEdit:", err);
+      setEditing(null);
+      alert("Error abriendo formulario: " + (err.message || err));
+    }
+  }
+
+  async function startNew() {
+    try {
+      console.log("[EntityList] startNew called for endpoint:", endpoint);
+
+      // IMPORTANT: Always use modelsMap for new form, not columns (which may be empty)
+      const cols = modelsMap[endpoint] || [];
+      console.log("[EntityList] columns from modelsMap:", cols.length, "columns");
+
+      if (cols.length) {
+        console.log("[EntityList] loading field options for sources:", cols.filter(c => c.source).map(c => c.source));
+        setLoadingOptions(true);
+        await loadFieldOptions(cols);
+        console.log("[EntityList] field options loaded");
+        setLoadingOptions(false);
+        // Only show the modal after options are loaded
+        setShowNewWithOptions(true);
+      } else {
+        console.warn("[EntityList] No columns found for endpoint:", endpoint);
+        setShowNewWithOptions(true);
+      }
+    } catch (err) {
+      console.error("[EntityList] Error in startNew:", err);
+      setLoadingOptions(false);
+      alert("Error abriendo formulario: " + (err.message || err));
+    }
+  }
 
   // pass keepStringFields for contactos to avoid numeric coercion
   const contactosKeep = ["NIF", "codigoPostal", "CodigoPostal", "codigo_postal", "CP", "postal_code"];
@@ -209,7 +381,7 @@ export default function EntityList({ endpoint }) {
   async function createNew(payload) {
     try {
       await API.create(endpoint, payload);
-      setShowNew(false);
+      setShowNewWithOptions(false);
       load();
     } catch (e) {
       alert("Error creating: " + (e.message || e));
@@ -220,20 +392,28 @@ export default function EntityList({ endpoint }) {
     if (!item) {
       const map = modelsMap[endpoint];
       if (map && map.length) {
-        if (map.includes("NIF")) return "NIF";
-        if (map.includes("IDProducto")) return "IDProducto";
-        if (map.includes("IDPeriodo")) return "IDPeriodo";
-        if (map.includes("numeroFactura")) return "numeroFactura";
-        if (map.includes("idSesion")) return "idSesion";
+        // map is an array of objects, need to check field names
+        const fields = map.map(c => getColField(c));
+        if (fields.includes("idSesion")) return "idSesion";
+        if (fields.includes("numeroFactura")) return "numeroFactura";
+        if (fields.includes("NIF")) return "NIF";
+        if (fields.includes("IDProducto")) return "IDProducto";
+        if (fields.includes("IDPeriodo")) return "IDPeriodo";
       }
       return "id";
     }
+    if (item.idSesion !== undefined) return "idSesion";
     if (item.id !== undefined) return "id";
+    if (item.numeroFactura !== undefined) return "numeroFactura";
     if (item.NIF !== undefined) return "NIF";
+    // unique keys usually top priority. Foreign keys like below should be last fallback
+    if (item.IDProducto !== undefined && endpoint === "productos") return "IDProducto";
+    if (item.IDPeriodo !== undefined && endpoint === "periodos") return "IDPeriodo";
+
+    // fallback
     if (item.IDProducto !== undefined) return "IDProducto";
     if (item.IDPeriodo !== undefined) return "IDPeriodo";
-    if (item.numeroFactura !== undefined) return "numeroFactura";
-    if (item.idSesion !== undefined) return "idSesion";
+
     const keys = Object.keys(item);
     const candidate = keys.find(k => k.toLowerCase() === "nif" || k.toLowerCase().endsWith("id") || k.toLowerCase().endsWith("_id"));
     return candidate ?? keys[0];
@@ -251,49 +431,228 @@ export default function EntityList({ endpoint }) {
     }
   }
 
+  // Selection Logic
+  function toggleSelectAll() {
+    if (selectedIds.size === items.length && items.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      const allIds = items.map(it => it[getIdKey(it)]);
+      setSelectedIds(new Set(allIds));
+    }
+  }
+
+  function toggleSelect(item) {
+    const id = item[getIdKey(item)];
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  }
+
+  const [cloningItem, setCloningItem] = useState(null);
+
+  async function openCloneModal(item = null) {
+    if (!item && selectedIds.size === 0) return;
+    try {
+      setCloningItem(item);
+      // Load periods if not loaded
+      const periods = await API.fetchList("periodos", 1, 1000);
+      setPeriodOptions(periods.data || periods); // handle {data:[], total:N} or []
+      setShowCloneModal(true);
+    } catch (e) {
+      alert("Error loading periods: " + e.message);
+    }
+  }
+
+  async function confirmClone() {
+    if (!cloneTargetPeriod) {
+      alert("Selecciona un periodo destino");
+      return;
+    }
+    const ids = cloningItem
+      ? [cloningItem[getIdKey(cloningItem)]]
+      : Array.from(selectedIds);
+
+    try {
+      const res = await API.postAction(endpoint, "clone", {
+        ids: ids,
+        target_period_id: cloneTargetPeriod
+      });
+      alert(`Clonado completado.\nCreados: ${res.created}\nOmitidos (duplicados): ${res.skipped}`);
+      setShowCloneModal(false);
+      setCloningItem(null);
+      setSelectedIds(new Set());
+      load();
+    } catch (e) {
+      alert("Error clonando: " + e.message);
+    }
+  }
+
+  async function confirmBilling(item = null) {
+    const itemsToBill = item ? [item] : Array.from(selectedIds).map(id => items.find(it => it[getIdKey(it)] == id)).filter(Boolean);
+
+    if (itemsToBill.length === 0) return;
+
+    const msg = itemsToBill.length === 1
+      ? "¿Facturar esta sesión?"
+      : `¿Facturar ${itemsToBill.length} sesiones seleccionadas?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      const payload = itemsToBill.map(it => ({
+        idSesion: it.idSesion,
+        totalAFacturar: it.total
+      }));
+
+      const res = await API.postAction(endpoint, "facturar", payload);
+      alert(`Facturación completada.\nCreadas: ${res.created}\nOmitidas (duplicadas): ${res.skipped}`);
+      setSelectedIds(new Set());
+      load();
+    } catch (e) {
+      alert("Error facturando: " + e.message);
+    }
+  }
+
+
   return (
     <div>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
-        <div style={{display:"flex", gap:12, alignItems:"center"}}>
-          <strong style={{fontSize:16}}>{endpoint.toUpperCase()}</strong>
-
-          <div>
-            <label className="muted" style={{marginRight:6}}>Page:</label>
-            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}>«</button>
-            <span style={{margin:"0 8px"}}>{page}</span>
-            <button onClick={() => { if (hasMore) setPage(p => p+1); else setPage(p => p+1); }} disabled={loading || (items.length===0 && page>1 && !hasMore)}>»</button>
-          </div>
-
-          <div style={{marginLeft:12}}>
-            <label className="muted" style={{marginRight:6}}>Page size:</label>
-            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
-              {[10,20,50,100].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-
-          {/* buscador global solo para Contactos (requerimiento) */}
-          {endpoint === "contactos" && (
-            <div style={{marginLeft:12}}>
-              <input
-                placeholder="Buscar contactos... (Enter)"
-                value={globalInput}
-                onChange={e => onGlobalInputChange(e.target.value)}
-                onKeyDown={onGlobalInputKeyDown}
-              />
-            </div>
+      <div className="entity-list-header">
+        <div className="entity-list-title-group">
+          <strong className="entity-list-title">{endpoint.toUpperCase()}</strong>
+          {selectedIds.size > 0 && (
+            <span style={{ marginLeft: 12, fontSize: 14, color: "var(--primary-1)", background: "#e0e7ff", padding: "2px 8px", borderRadius: 4 }}>
+              {selectedIds.size} seleccionados
+            </span>
           )}
         </div>
 
-        <div>
-          <button onClick={load}>Refrescar</button>
-          <button style={{marginLeft:8}} className="primary" onClick={() => setShowNew(true)}>Nuevo</button>
+        <div className="entity-list-controls">
+          {endpoint === "sesiones" && selectedIds.size > 0 && (
+            <>
+              {(() => {
+                const hasBilled = Array.from(selectedIds).some(id => {
+                  const item = items.find(it => it[getIdKey(it)] == id);
+                  return item && item.facturado === 'FACTURADO';
+                });
+                return (
+                  <button
+                    onClick={() => confirmBilling()}
+                    disabled={hasBilled}
+                    title={hasBilled ? "No se pueden facturar sesiones que ya están facturadas" : ""}
+                    style={{
+                      marginRight: 8,
+                      background: hasBilled ? "#94a3b8" : "#059669",
+                      color: "white",
+                      borderColor: hasBilled ? "#94a3b8" : "#059669",
+                      cursor: hasBilled ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    💰 Facturar Sesión
+                  </button>
+                );
+              })()}
+              <button onClick={() => openCloneModal()} style={{ marginRight: 12, background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
+                ⚡ Clonar a Periodo
+              </button>
+            </>
+          )}
+          <div className="pagination-group">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} title="Previous page">«</button>
+            <span>{page}</span>
+            <button onClick={() => { if (hasMore) setPage(p => p + 1); else setPage(p => p + 1); }} disabled={loading || (items.length === 0 && page > 1 && !hasMore)} title="Next page">»</button>
+
+            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} title="Items per page">
+              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <span style={{ marginLeft: 8, fontSize: "0.9em", color: "#666" }}>
+              Mostrando {Math.min((page - 1) * pageSize + 1, totalItems)} - {Math.min(page * pageSize, totalItems)} de {totalItems}
+            </span>
+          </div>
+
+          {(endpoint === "sesiones" || endpoint === "facturas") && (
+            <div className="filter-group" style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
+              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: "4px 8px" }}>
+                <option value="">Año</option>
+                {Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <select value={filterPeriod} onChange={e => { setFilterPeriod(e.target.value); setPage(1); }} title="Filtrar por Periodo" style={{ padding: "4px 8px", minWidth: 120 }}>
+                <option value="">Periodo</option>
+                <optgroup label="Trimestres">
+                  <option value="Q1">Trimestre 1</option>
+                  <option value="Q2">Trimestre 2</option>
+                  <option value="Q3">Trimestre 3</option>
+                  <option value="Q4">Trimestre 4</option>
+                </optgroup>
+                <optgroup label="Meses">
+                  <option value="M1">Enero</option>
+                  <option value="M2">Febrero</option>
+                  <option value="M3">Marzo</option>
+                  <option value="M4">Abril</option>
+                  <option value="M5">Mayo</option>
+                  <option value="M6">Junio</option>
+                  <option value="M7">Julio</option>
+                  <option value="M8">Agosto</option>
+                  <option value="M9">Septiembre</option>
+                  <option value="M10">Octubre</option>
+                  <option value="M11">Noviembre</option>
+                  <option value="M12">Diciembre</option>
+                </optgroup>
+              </select>
+            </div>
+          )}
+
+          <div className="search-container">
+            <input
+              className="search-input"
+              placeholder={`🔍 Buscar en ${endpoint}...`}
+              value={globalInput}
+              onChange={e => onGlobalInputChange(e.target.value)}
+              onKeyDown={onGlobalInputKeyDown}
+            />
+          </div>
+
+          <div className="entity-list-actions">
+            <button onClick={load}>Refrescar</button>
+            <button className="primary" onClick={startNew}>Nuevo</button>
+          </div>
         </div>
       </div>
 
       {error && (
-        <div className="card" style={{background:"#fff6f6", border:"1px solid #fecaca", color:"#9f1239", marginBottom:12}}>
+        <div className="card" style={{ background: "#fff6f6", border: "1px solid #fecaca", color: "#9f1239", marginBottom: 12 }}>
           <strong>Error al cargar {endpoint}:</strong>
-          <div style={{marginTop:6, fontFamily:"monospace"}}>{error}</div>
+          <div style={{ marginTop: 6, fontFamily: "monospace" }}>{error}</div>
+        </div>
+      )}
+
+      {aggregates && (
+        <div style={{
+          background: "#f1f5f9",
+          padding: "10px 16px",
+          borderRadius: 8,
+          marginBottom: 12,
+          display: "flex",
+          gap: 20,
+          fontSize: 14,
+          fontWeight: 600,
+          border: "1px solid var(--border)",
+          color: "var(--text)"
+        }}>
+          <span style={{ color: "var(--muted)" }}>RESUMEN:</span>
+          {Object.entries(aggregates).map(([k, v]) => {
+            const label = k === 'base' ? 'BASE' : k === 'total' ? 'TOTAL' : k === 'totalPagado' ? 'PAGADO' : k === 'pendiente' ? 'PENDIENTE' : k.toUpperCase();
+            return (
+              <div key={k} style={{ display: "flex", gap: 6 }}>
+                <span style={{ color: "var(--muted)" }}>{label}:</span>
+                <span style={{ color: "var(--primary-1)" }}>
+                  {v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -301,7 +660,7 @@ export default function EntityList({ endpoint }) {
         <>
           {(!items || items.length === 0) ? (
             <div className="card"><em className="muted">No hay elementos para "{endpoint}".</em>
-              <div style={{marginTop:8}} className="pretty-json">Última respuesta: {items && items.length===0 ? "[]" : JSON.stringify(items, null, 2)}</div>
+              <div style={{ marginTop: 8 }} className="pretty-json">Última respuesta: {items && items.length === 0 ? "[]" : JSON.stringify(items, null, 2)}</div>
             </div>
           ) : (
             <>
@@ -309,50 +668,83 @@ export default function EntityList({ endpoint }) {
                 <div className="card">
                   <em>Vista (JSON)</em>
                   {items.map((it, idx) => (
-                    <div key={idx} style={{marginBottom:10}}>
+                    <div key={idx} style={{ marginBottom: 10 }}>
                       <div className="pretty-json">{JSON.stringify(it, null, 2)}</div>
-                      <div style={{marginTop:6}}>
+                      <div style={{ marginTop: 6 }}>
                         <button onClick={() => startEdit(it)}>Editar</button>
-                        <button style={{marginLeft:8}} onClick={() => remove(it)}>Borrar</button>
+                        <button style={{ marginLeft: 8 }} onClick={() => remove(it)}>Borrar</button>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      {columns.map(c => (
-                        <th key={c} style={{cursor:"pointer"}} onClick={() => toggleSort(c)}>
-                          {c} {sortField === c ? (sortDir === "asc" ? "▲" : "▼") : ""}
-                          <div>
-                            {/* filtro por columna: aplicar al pulsar Enter */}
+                <div className="table-container">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        {endpoint === "sesiones" && (
+                          <th style={{ width: 40, textAlign: "center" }}>
                             <input
-                              style={{width:140, marginTop:6}}
-                              placeholder={`Filtrar ${c} (Enter)`}
-                              value={filterInputs[c] ?? filters[c] ?? ""}
-                              onChange={e => onFilterInputChange(c, e.target.value)}
-                              onKeyDown={e => onFilterInputKeyDown(c, e)}
+                              type="checkbox"
+                              checked={items.length > 0 && selectedIds.size === items.length}
+                              onChange={toggleSelectAll}
                             />
-                          </div>
-                        </th>
-                      ))}
-                      <th style={{width:160}}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((it, idx) => (
-                      <tr key={idx}>
-                        {columns.map(c => (<td key={c}>{ renderCell(it[c]) }</td>))}
-                        <td style={{whiteSpace:"nowrap"}}>
-                          <button onClick={() => startEdit(it)}>Editar</button>
-                          <button style={{marginLeft:8}} onClick={() => remove(it)}>Borrar</button>
-                          <button style={{marginLeft:8}} onClick={() => alert(JSON.stringify(it, null, 2))}>Ver</button>
-                        </td>
+                          </th>
+                        )}
+                        {columns.filter(col => typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title')).map(col => {
+                          const c = getColField(col);
+                          const label = getColLabel(col);
+                          const width = getColWidth(col);
+                          return (
+                            <th key={c} style={{ cursor: "pointer", width: width, minWidth: width !== "auto" ? width : undefined }} onClick={() => toggleSort(c)}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                {label} {sortField === c ? (sortDir === "asc" ? "▲" : "▼") : <span style={{ opacity: 0.3 }}>⇅</span>}
+                              </div>
+                            </th>
+                          );
+                        })}
+                        <th style={{ width: 160 }}>Acciones</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {items.map((it, idx) => (
+                        <tr key={idx} className={selectedIds.has(it[getIdKey(it)]) ? "row-selected" : ""}>
+                          {endpoint === "sesiones" && (
+                            <td style={{ textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(it[getIdKey(it)])}
+                                onChange={() => toggleSelect(it)}
+                              />
+                            </td>
+                          )}
+                          {columns.filter(col => typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title')).map(col => {
+                            const c = getColField(col);
+                            const val = it[c];
+                            // Custom renderer for Facturado status
+                            if (c === 'facturado' && val === 'FACTURADO') {
+                              return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
+                            }
+                            return <td key={c}>{renderCell(val)}</td>
+                          })}
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            <ActionMenu
+                              onEdit={() => startEdit(it)}
+                              onDelete={() => remove(it)}
+                              onView={() => setViewing(it)}
+                              canEdit={endpoint !== "facturas"}
+                              canDelete={
+                                endpoint === "sesiones"
+                                  ? (it.facturado !== "FACTURADO" && it.numeroFactura == null)
+                                  : endpoint !== "facturas"
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </>
           )}
@@ -362,7 +754,7 @@ export default function EntityList({ endpoint }) {
       {editing && (
         <div className="modal-backdrop" onClick={() => setEditing(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Editar</h3>
+            <h3>Editar {getTitleValue(editing, columns)}</h3>
             <EntityForm
               columns={columns.length ? columns : Object.keys(editing)}
               item={editing}
@@ -370,36 +762,93 @@ export default function EntityList({ endpoint }) {
               onCancel={() => setEditing(null)}
               isNew={false}
               keepStringFields={endpoint === "contactos" ? contactosKeep : []}
+              fieldOptions={fieldOptions}
             />
           </div>
         </div>
       )}
 
-      {showNew && (
-        <div className="modal-backdrop" onClick={() => setShowNew(false)}>
+      {showNewWithOptions && (
+        <div className="modal-backdrop" onClick={() => setShowNewWithOptions(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Nuevo</h3>
+            {loadingOptions ? (
+              <div style={{ padding: "20px", textAlign: "center" }}>Cargando opciones...</div>
+            ) : (
+              <EntityForm
+                columns={modelsMap[endpoint] || []}
+                item={{}}
+                onSave={createNew}
+                onCancel={() => setShowNewWithOptions(false)}
+                isNew={true}
+                keepStringFields={endpoint === "contactos" ? contactosKeep : []}
+                fieldOptions={fieldOptions}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {viewing && (
+        <div className="modal-backdrop" onClick={() => setViewing(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Ver {getTitleValue(viewing, columns)}</h3>
             <EntityForm
-              columns={columns.length ? columns : ["nombre"]}
-              item={{}}
-              onSave={createNew}
-              onCancel={() => setShowNew(false)}
-              isNew={true}
-              keepStringFields={endpoint === "contactos" ? contactosKeep : []}
+              columns={columns.length ? columns : Object.keys(viewing)}
+              item={viewing}
+              onCancel={() => setViewing(null)}
+              readOnly={true}
+              endpoint={endpoint}
+              onClone={(item) => {
+                setViewing(null);
+                openCloneModal(item);
+              }}
+              onInvoice={(item) => {
+                setViewing(null);
+                confirmBilling(item);
+              }}
             />
+          </div>
+        </div>
+      )}
+      {showCloneModal && (
+        <div className="modal-backdrop" onClick={() => setShowCloneModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
+            <h3>Clonar Sesiones</h3>
+            <p>Se clonarán {selectedIds.size} sesiones seleccionadas.</p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+              <label>Periodo Destino:</label>
+              <select
+                value={cloneTargetPeriod}
+                onChange={e => setCloneTargetPeriod(e.target.value)}
+                style={{ width: "100%", padding: 8 }}
+              >
+                <option value="">-- Seleccionar --</option>
+                {Array.isArray(periodOptions) && periodOptions.map(p => (
+                  <option key={p.IDPeriodo} value={p.IDPeriodo}>
+                    {p.descPeriodo} ({p.IDPeriodo})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => { setShowCloneModal(false); setCloningItem(null); }}>Cancelar</button>
+              <button className="primary" onClick={confirmClone} disabled={!cloneTargetPeriod}>Confirmar</button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
 function renderCell(value) {
   if (value === null || value === undefined) return <span className="muted">—</span>;
   if (typeof value === "boolean") return String(value);
   if (typeof value === "number" || typeof value === "string") {
     const s = String(value);
-    if (s.length > 160) return <div className="pretty-json">{s.slice(0,160)}{s.length>160?"…":""}</div>;
+    if (s.length > 160) return <div className="pretty-json">{s.slice(0, 160)}{s.length > 160 ? "…" : ""}</div>;
     return s;
   }
   try { return <div className="pretty-json">{JSON.stringify(value, null, 2)}</div>; } catch { return String(value); }

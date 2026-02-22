@@ -24,7 +24,8 @@ def list_productos(request: Request,
         if hasattr(Producto, field):
             col = getattr(Producto, field)
             try:
-                stmt = stmt.where(col.ilike(f"%{value}%"))
+                from sqlalchemy import cast, String
+                stmt = stmt.where(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
             except Exception:
                 stmt = stmt.where(col == value)
 
@@ -33,18 +34,31 @@ def list_productos(request: Request,
         for fname in Producto.__fields__.keys():
             if hasattr(Producto, fname):
                 col = getattr(Producto, fname)
+                column_type = col.type if hasattr(col, "type") else None
+                is_string = False
                 try:
-                    ors.append(col.ilike(f"%{q}%"))
-                except Exception:
-                    pass
+                    if column_type and hasattr(column_type, "python_type") and column_type.python_type == str:
+                        is_string = True
+                except NotImplementedError:
+                    if column_type and "String" in type(column_type).__name__:
+                        is_string = True
+                
+                    try:
+                        from sqlalchemy import cast, String
+                        ors.append(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{q}%")))
+                    except Exception as e:
+                        print(f"ERROR filtering {col.name}: {e}")
+                        pass
         if ors:
             stmt = stmt.where(or_(*ors))
 
-    total_res = session.exec(select(func.count()).select_from(Producto)).one()
+    # total count (filtered)
+    # Use subquery to count rows matching the filters
+    total_res = session.exec(select(func.count()).select_from(stmt.subquery())).one()
     try:
-        total = int(total_res[0])
-    except Exception:
         total = int(total_res)
+    except Exception:
+        total = 0
 
     if sort and hasattr(Producto, sort):
         col = getattr(Producto, sort)
@@ -69,7 +83,7 @@ def get_producto(idproducto: str):
             raise HTTPException(status_code=404, detail="Producto not found")
         return p
 
-@router.post("/", response_model=Producto, status_code=201)
+@router.post("", response_model=Producto, status_code=201)
 def create_producto(payload: Producto):
     with Session(engine) as s:
         if payload.IDProducto is None:

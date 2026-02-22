@@ -29,7 +29,28 @@ def get_engine():
 
 def init_db() -> None:
     # crea tablas a partir de los modelos (útil en dev)
+    # Ensure unaccent extension exists for ILIKE searches
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+        conn.commit()
+    
     SQLModel.metadata.create_all(bind=engine)
+    
+    # Seed Metadatos
+    from app.models import Metadatos
+    from sqlmodel import select
+    with Session(engine) as session:
+        # Check if any metadata row exists
+        existing = session.exec(select(Metadatos)).first()
+        if not existing:
+            # Seed default
+            session.add(Metadatos(serie="F", ultimoNumeroFactura=0))
+            try:
+                session.commit()
+                print("Seeded Metadatos (Serie=F, LastNum=0)")
+            except Exception as e:
+                print(f"Error seeding metadata: {e}")
 
 
 def get_session() -> Generator[Session, None, None]:

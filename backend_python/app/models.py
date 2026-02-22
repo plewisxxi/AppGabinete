@@ -33,6 +33,7 @@ class Producto(ProductoBase, table=True):
 class PeriodoBase(SQLModel):
     IDPeriodo: Optional[str] = Field(default=None, primary_key=True)
     descPeriodo: Optional[str] = Field(default=None)
+    fechaInicioPeriodo: Optional[date] = Field(default=None)
 
 class Periodo(PeriodoBase, table=True):
     pass
@@ -41,14 +42,18 @@ class SesionBase(SQLModel):
     idSesion: int  = Field(default=None, primary_key=True)
     fechaOperacion: Optional[date] = Field(default=None)
     NIFCliente: Optional[str] = Field(default=None)
+    #nombreContacto: Optional[str] = Field(default=None)
     concepto: Optional[str] = Field(default=None)
     base: Optional[Decimal] = Field(default=None)
     total: Optional[Decimal] = Field(default=None)
     IDPeriodo: Optional[str] = Field(default=None)
+    #descPeriodo: Optional[str] = Field(default=None)
     IDProducto: Optional[str] = Field(default=None)
+    #descProducto: Optional[str] = Field(default=None)
     facturado: Optional[str] = Field(default=None)
     fechaPago: Optional[date] = Field(default=None)
     totalPagado: Optional[Decimal] = Field(default=None)
+    numeroFactura: Optional[str] = Field(default=None)
 
 class Sesion(SesionBase, table=True):
     pass
@@ -73,3 +78,13 @@ class Factura(FacturaBase, table=True):
     pass
 
 
+class Metadatos(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    serie: Optional[str] = Field(default="F")
+    ultimoNumeroFactura: int = Field(default=0)
+    # created_at might exist in DB but we can omit if not used or add if needed.
+    # User didn't mention it, but check_schema showed it.
+    # Best to include it as Optional or ignore it if SQLModel allows. 
+    # Let's verify if we need it. check_schema showed 'created_at'.
+    # I'll enable it as optional to avoid insert errors if not default.
+    created_at: Optional[datetime] = Field(default=None)

@@ -26,7 +26,8 @@ def list_contactos(request: Request,
         if hasattr(Contacto, field):
             col = getattr(Contacto, field)
             try:
-                stmt = stmt.where(col.ilike(f"%{value}%"))
+                from sqlalchemy import cast, String
+                stmt = stmt.where(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
             except Exception:
                 stmt = stmt.where(col == value)
 
@@ -34,20 +35,36 @@ def list_contactos(request: Request,
     if q:
         ors = []
         for col in Contacto.__table__.columns:
+            is_string = False
             try:
-                ors.append(getattr(Contacto, col.name).ilike(f"%{q}%"))
-            except Exception:
-                # if not a text-compatible column, skip
-                continue
+                if hasattr(col.type, "python_type") and col.type.python_type == str:
+                    is_string = True
+            except NotImplementedError:
+                if "String" in type(col.type).__name__:
+                    is_string = True
+            
+            if is_string:
+                try:
+                    # Explicit cast to ensure unaccent receives text
+                    # Also print error if it fails
+                    from sqlalchemy import cast, String
+                    ors.append(func.unaccent(cast(getattr(Contacto, col.name), String)).ilike(func.unaccent(f"%{q}%")))
+                except Exception as e:
+                    print(f"ERROR filtering {col.name}: {e}")
+                    continue
         if ors:
+            print(f"DEBUG: q='{q}', ors count={len(ors)}")
+            # Debug the filter expression
+            # print(f"DEBUG expr: {or_(*ors)}") 
             stmt = stmt.where(or_(*ors))
 
-    # total count
-    total_res = session.exec(select(func.count()).select_from(Contacto)).one()
+    # total count (filtered)
+    # Use subquery to count rows matching the filters
+    total_res = session.exec(select(func.count()).select_from(stmt.subquery())).one()
     try:
-        total = int(total_res[0])
-    except Exception:
         total = int(total_res)
+    except Exception:
+        total = 0
 
     # ordering
     if sort and hasattr(Contacto, sort):
@@ -69,7 +86,7 @@ def get_contacto(nif: str, session: Session = Depends(get_session)):
     return contacto
 
 
-@router.post("/", response_model=Contacto, status_code=201)
+@router.post("", response_model=Contacto, status_code=201)
 def create_contacto(payload: Contacto, session: Session = Depends(get_session)):
     # payload.NIF debe estar presente (pk)
     if getattr(payload, "NIF", None) is None:
