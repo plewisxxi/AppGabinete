@@ -99,6 +99,18 @@ def list_sesiones(
             # Use unaccent for accent-insensitive search
             contact_nifs = select(Contacto.NIF).where(func.unaccent(Contacto.Nombre).ilike(func.unaccent(f"%{value}%")))
             ids_stmt = ids_stmt.where(Sesion.NIFCliente.in_(contact_nifs))
+        elif field == "facturado":
+            # Handle boolean filter specifically
+            if isinstance(value, str):
+                bool_val = value.lower() == "true"
+            else:
+                bool_val = bool(value)
+            
+            if bool_val:
+                ids_stmt = ids_stmt.where(Sesion.facturado == True)
+            else:
+                # When filtering for NO FACTURADO, include NULL values
+                ids_stmt = ids_stmt.where(or_(Sesion.facturado == False, Sesion.facturado == None))
         elif hasattr(Sesion, field):
             col = getattr(Sesion, field)
             try:
@@ -233,6 +245,10 @@ def update_sesion(id: int, payload: Dict[str, Any] = Body(...)):
                 # Convert date fields from DD-MM-YYYY to date objects
                 if k in ["fechaOperacion", "fechaPago"] and v:
                     v = parse_date_from_display(v)
+                # Map facturado labels back to boolean
+                if k == "facturado" and isinstance(v, str):
+                    if v == "FACTURADO": v = True
+                    elif v == "NO FACTURADO": v = False
                 setattr(srv, k, v)
         s.add(srv)
         s.commit()
@@ -358,7 +374,7 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...)):
                 total=source.total,
                 IDPeriodo=target_period_id,
                 IDProducto=source.IDProducto,
-                facturado="NO FACTURADO",
+                facturado=False,
                 fechaPago=None,
                 totalPagado=0
             )
@@ -454,7 +470,7 @@ def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...)):
             s.add(new_factura)
             
             # 2.5 Update Sesion
-            sesion.facturado = "FACTURADO"
+            sesion.facturado = True
             sesion.totalPagado = total_facturar
             sesion.fechaPago = today
             # Link sesion to invoice

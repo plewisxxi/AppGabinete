@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from "react";
 
-export default function EntityForm({ columns = [], item = {}, onSave, onCancel, isNew = false, keepStringFields = [], readOnly = false, fieldOptions = {}, endpoint, onClone, onInvoice }) {
+export default function EntityForm({
+  columns = [],
+  item = {},
+  onSave,
+  onCancel,
+  isNew = false,
+  keepStringFields = [],
+  readOnly = false,
+  fieldOptions = {},
+  endpoint,
+  onClone,
+  onInvoice,
+  onViewExternal
+}) {
   console.log("[EntityForm] render with fieldOptions:", fieldOptions);
   console.log("[EntityForm] columns:", columns);
 
@@ -18,10 +31,19 @@ export default function EntityForm({ columns = [], item = {}, onSave, onCancel, 
       val = `${yyyy}-${mm}-${dd}`;
     }
 
+    if (field === "facturado" && typeof val === "boolean") {
+      val = val ? "FACTURADO" : "NO FACTURADO";
+    }
+
     initial[field] = val;
   });
 
   const [form, setForm] = useState(initial);
+
+  // Sync form state when item changes (e.g. when opening edit for a different session)
+  useEffect(() => {
+    setForm(initial);
+  }, [item, columns]);
 
   function change(k, v) {
     if (readOnly) return;
@@ -152,6 +174,12 @@ export default function EntityForm({ columns = [], item = {}, onSave, onCancel, 
         // mantener como string, limpiar espacios
         if (typeof v === "string") payload[k] = v.trim();
       }
+
+      // Final check for boolean fields mapped to labels
+      if (k === "facturado" && typeof payload[k] === "string") {
+        if (payload[k] === "FACTURADO") payload[k] = true;
+        else if (payload[k] === "NO FACTURADO") payload[k] = false;
+      }
     });
 
     onSave(payload);
@@ -186,7 +214,33 @@ export default function EntityForm({ columns = [], item = {}, onSave, onCancel, 
                 }
 
                 if (type === 'title') {
-                  return <h4 key={cIdx} style={{ width: '100%', margin: '16px 0 8px 0', fontSize: '18px', fontWeight: '600', color: 'var(--primary-1)' }}>{label}</h4>;
+                  const isBillingSection = endpoint === "sesiones" && label === "Datos Facturación" && form.facturado === "FACTURADO" && form.numeroFactura;
+                  return (
+                    <div key={cIdx} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px 0' }}>
+                      <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: 'var(--primary-1)' }}>{label}</h4>
+                      {isBillingSection && (
+                        <button
+                          type="button"
+                          onClick={() => onViewExternal("facturas", form.numeroFactura)}
+                          className="ghost"
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '13px',
+                            height: 'auto',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            color: 'var(--text-muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                          title="Ver Factura"
+                        >
+                          👁️ Ver Factura
+                        </button>
+                      )}
+                    </div>
+                  );
                 }
 
                 const isTextArea = k.toLowerCase().includes("desc") || k.toLowerCase().includes("nota");
@@ -275,17 +329,25 @@ export default function EntityForm({ columns = [], item = {}, onSave, onCancel, 
                   );
                 }
 
+                const isInvoiceNumber = endpoint === "sesiones" && k === "numeroFactura" && form.facturado === "FACTURADO" && form[k];
+
                 return (
                   <div key={k} className={`form-field ${isTextArea ? 'full-width' : ''}`} style={fieldStyle}>
                     <label>{label}</label>
                     {isTextArea ? (
                       <textarea value={form[k] ?? ""} onChange={e => change(k, e.target.value)} rows={4} disabled={isDisabled} />
                     ) : (
-                      <input
-                        value={form[k] ?? ""}
-                        onChange={e => change(k, e.target.value)}
-                        disabled={isDisabled}
-                      />
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          value={form[k] ?? ""}
+                          onChange={e => change(k, e.target.value)}
+                          disabled={isDisabled}
+                          style={(readOnly && k === 'facturado') ? {
+                            color: form[k] === 'FACTURADO' ? '#059669' : '#dc2626',
+                            fontWeight: 'bold'
+                          } : {}}
+                        />
+                      </div>
                     )}
                   </div>
                 );
@@ -302,14 +364,23 @@ export default function EntityForm({ columns = [], item = {}, onSave, onCancel, 
             <button type="button" onClick={() => onClone(item)} style={{ background: "#0f172a", color: "white" }}>
               ⚡ Clonar
             </button>
-            {(item.facturado !== "FACTURADO" && item.numeroFactura == null) && (
+            {(item.facturado !== true && item.numeroFactura == null) && (
               <button type="button" onClick={() => onInvoice(item)} style={{ background: "#059669", color: "white" }}>
                 💰 Facturar
               </button>
             )}
           </>
         )}
-        {!readOnly && <button type="submit" className="primary">{isNew ? "Crear" : "Guardar"}</button>}
+        {!readOnly && (
+          <button
+            type="submit"
+            className="primary"
+            disabled={endpoint === "sesiones" && item.facturado === true}
+            title={endpoint === "sesiones" && item.facturado === true ? "No se puede editar una sesión facturada" : ""}
+          >
+            {isNew ? "Crear" : "Guardar"}
+          </button>
+        )}
       </div>
     </form>
   );

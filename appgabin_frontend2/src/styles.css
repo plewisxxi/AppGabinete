@@ -1,4 +1,6 @@
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -27,10 +29,12 @@
 body {
   font-family: "Outfit", system-ui, -apple-system, sans-serif;
   margin: 0;
-  padding: 20px;
+  padding: 0;
   background: #f1f5f9;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* Container */
@@ -304,8 +308,10 @@ select {
 /* Sidebar Layout */
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  width: 100vw;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .main-content {
@@ -318,6 +324,7 @@ select {
 /* Sidebar Styles */
 .sidebar {
   width: 260px;
+  height: 100vh;
   background: white;
   border-right: 1px solid var(--border);
   display: flex;
@@ -653,4 +660,30 @@ select {
   .entity-list-actions button {
     flex: 1;
   }
+}
+
+.dashboard-container {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dashboard-grid .card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dashboard-grid .card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--primary-2);
 }

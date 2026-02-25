@@ -95,6 +95,17 @@ const API = {
     });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
+  },
+
+  async fetchStats(subpath, params = {}) {
+    const url = new URL(`${this.base}/stats/${subpath}`, window.location.origin);
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== null && v !== undefined) url.searchParams.set(k, String(v));
+    });
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
   }
 };
 

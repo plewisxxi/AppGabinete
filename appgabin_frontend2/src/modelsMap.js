@@ -41,19 +41,19 @@ export default {
     { field: "pendiente", label: "Pendiente", type: "money", readOnly: true, isComputed: true, row: 10, width: "25%" }
   ],
   facturas: [
-    { field: "numeroFactura", label: "Número" },
-    { field: "fechaEmision", label: "Fecha de Emisión" },
-    { field: "fechaPago", label: "Fecha de Pago" },
-    { field: "NIFCliente", label: "NIF" },
-    { field: "IDProducto", label: "IDProducto" },
-    { field: "concepto", label: "Concepto" },
-    { field: "estado", label: "Estado" },
-    { field: "esRectificativa", label: "Rectificativa" },
-    { field: "base", label: "Base" },
-    { field: "total", label: "Total" },
-    { field: "metodoPago", label: "Método de Pago" },
-    //{ field: "etiquetas", label: "Etiquetas" },
-    { field: "trimestre", label: "Trimestre" },
-    { field: "IDPeriodo", label: "IDPeriodo" }
+    { field: "numeroFactura", label: "Número", readOnly: true, row: 1, width: "33.33%" },
+    { field: "fechaEmision", label: "Fecha de Emisión", type: "date", row: 1, width: "33.33%" },
+    { field: "NIFCliente", label: "NIF", type: "datalist", source: "contactos", displayKey: "Nombre", valueKey: "NIF", row: 3, width: "20%" },
+    { field: "nombreContacto", label: "Nombre Contacto", readOnly: true, row: 3, width: "80%", widthList: "300px" },
+    { field: "concepto", label: "Concepto", row: 5, width: "100%", widthList: "350px" },
+    { field: "estado", label: "Estado", row: 2, width: "33.33%" },
+    { field: "fechaPago", label: "Fecha de Pago", type: "date", row: 2, width: "33.33%" },
+    { field: "base", label: "Base", type: "money", row: 6, width: "25%" },
+    { field: "total", label: "Total", type: "money", row: 6, width: "25%" },
+    { field: "esRectificativa", label: "rect.", row: 1, width: "33.33%" },
+    { field: "IDProducto", label: "Producto", row: 4, width: "33.33%", widthList: "100px" },
+    { field: "IDPeriodo", label: "Periodo", row: 4, width: "33.33%" },
+    { field: "trimestre", label: "Trimestre", row: 4, width: "33.33%" },
+    { field: "metodoPago", label: "Método de Pago", row: 2, width: "33.33%", hideInList: true }
   ]
 };

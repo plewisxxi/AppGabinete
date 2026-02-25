@@ -50,7 +50,7 @@ class SesionBase(SQLModel):
     #descPeriodo: Optional[str] = Field(default=None)
     IDProducto: Optional[str] = Field(default=None)
     #descProducto: Optional[str] = Field(default=None)
-    facturado: Optional[str] = Field(default=None)
+    facturado: Optional[bool] = Field(default=None)
     fechaPago: Optional[date] = Field(default=None)
     totalPagado: Optional[Decimal] = Field(default=None)
     numeroFactura: Optional[str] = Field(default=None)

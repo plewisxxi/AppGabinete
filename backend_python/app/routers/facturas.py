@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime, date
 from fastapi import APIRouter, HTTPException, Body, Query, Depends, Request
 from sqlmodel import Session, select
-from sqlalchemy import func, asc, desc, or_
+from sqlalchemy import func, asc, desc, or_, cast, Integer, BigInteger, String
 from app.database import engine, get_session
 from app import models
 
@@ -56,13 +56,14 @@ def parse_date_from_display(date_str):
         raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str}. Expected DD-MM-YYYY")
 
 
-def serialize_factura(factura):
+def serialize_factura(factura, nombre_contacto: Optional[str] = None):
     """Convert Factura object to dict with formatted dates."""
     data = {
         "numeroFactura": factura.numeroFactura,
         "fechaEmision": format_date_for_display(factura.fechaEmision),
         "fechaPago": format_date_for_display(factura.fechaPago),
         "NIFCliente": factura.NIFCliente,
+        "nombreContacto": nombre_contacto,
         "IDProducto": factura.IDProducto,
         "concepto": factura.concepto,
         "estado": factura.estado,
@@ -92,81 +93,55 @@ def list_facturas(
     params = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
-    stmt = select(Factura)
+    # 1. Base query to identify filtered invoice IDs
+    ids_stmt = select(Factura.numeroFactura)
 
-    
     # Date range filters
     if start_date:
         start_date_obj = parse_date_from_display(start_date)
-        stmt = stmt.where(Factura.fechaEmision >= start_date_obj)
+        ids_stmt = ids_stmt.where(Factura.fechaEmision >= start_date_obj)
     if end_date:
         end_date_obj = parse_date_from_display(end_date)
-        stmt = stmt.where(Factura.fechaEmision <= end_date_obj)
+        ids_stmt = ids_stmt.where(Factura.fechaEmision <= end_date_obj)
 
     # field filters
     for field, value in filters.items():
         if field == "nombreContacto":
             # Search by contact name
-            from app.models import Contacto
             contact_nifs = select(Contacto.NIF).where(func.unaccent(Contacto.Nombre).ilike(func.unaccent(f"%{value}%")))
-            stmt = stmt.where(Factura.NIFCliente.in_(contact_nifs))
+            ids_stmt = ids_stmt.where(Factura.NIFCliente.in_(contact_nifs))
         elif hasattr(Factura, field):
             col = getattr(Factura, field)
             try:
-                from sqlalchemy import cast, String
-                stmt = stmt.where(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
+                ids_stmt = ids_stmt.where(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
             except Exception:
-                stmt = stmt.where(col == value)
+                ids_stmt = ids_stmt.where(col == value)
                 
     # global q search
     if q:
         ors = []
         # Include contact name in global search
-        from app.models import Contacto
         contact_nifs_q = select(Contacto.NIF).where(func.unaccent(Contacto.Nombre).ilike(func.unaccent(f"%{q}%")))
         ors.append(Factura.NIFCliente.in_(contact_nifs_q))
 
         for col in Factura.__table__.columns:
-            is_string = False
             try:
-                if hasattr(col.type, "python_type") and col.type.python_type == str:
-                    is_string = True
-            except NotImplementedError:
-                if "String" in type(col.type).__name__:
-                    is_string = True
-            
-            if is_string:
-                try:
-                    from sqlalchemy import cast, String
-                    ors.append(func.unaccent(cast(getattr(Factura, col.name), String)).ilike(func.unaccent(f"%{q}%")))
-                except Exception as e:
-                    print(f"ERROR filtering {col.name}: {e}")
-                    pass
+                ors.append(func.unaccent(cast(getattr(Factura, col.name), String)).ilike(func.unaccent(f"%{q}%")))
+            except: continue
         if ors:
-            stmt = stmt.where(or_(*ors))
-            
-    # total count (filtered)
-    total_res = session.exec(select(func.count()).select_from(stmt.subquery())).one()
-    try:
-        total = int(total_res)
-    except Exception:
-        total = 0
+            ids_stmt = ids_stmt.where(or_(*ors))
 
-    if sort and hasattr(Factura, sort):
-        col = getattr(Factura, sort)
-        stmt = stmt.order_by(desc(col) if (order and order.lower() == "desc") else asc(col))
+    # Convert to subquery for use in counts and aggregates
+    filtered_ids = ids_stmt.subquery()
 
-    offset = max(0, (page - 1)) * page_size
-    items = session.exec(stmt.offset(offset).limit(page_size)).all()
+    # 2. TOTAL COUNT (filtered)
+    total = session.exec(select(func.count()).select_from(filtered_ids)).one()
 
-    # Serialize items with formatted dates
-    serialized_items = [serialize_factura(item) for item in items]
-
-    # aggregates (filtered)
+    # 3. ACCURATE AGGREGATES (filtered)
     agg_stmt = select(
         func.coalesce(func.sum(Factura.base), 0),
         func.coalesce(func.sum(Factura.total), 0)
-    ).select_from(stmt.subquery())
+    ).where(Factura.numeroFactura.in_(select(filtered_ids.c.numeroFactura)))
     
     aggs = session.exec(agg_stmt).one()
     aggregates = {
@@ -174,16 +149,44 @@ def list_facturas(
         "total": float(aggs[1])
     }
 
+    # 4. FINAL DATA RETRIEVAL - JOIN with Contacto to get the name
+    stmt = (
+        select(Factura, Contacto.Nombre)
+        .outerjoin(Contacto, Factura.NIFCliente == Contacto.NIF)
+        .where(Factura.numeroFactura.in_(select(filtered_ids.c.numeroFactura)))
+    )
+
+    if sort == "numeroFactura":
+        # Use regex to extract numeric parts more robustly and cast to BigInteger
+        # We use NullIf to avoid empty string cast errors
+        # Labeling expressions can sometimes help SQLAlchemy resolve them in complex queries
+        serie_int = cast(func.nullif(func.regexp_replace(func.split_part(Factura.numeroFactura, "-", 1), "[^0-9]", "", "g"), ""), BigInteger).label("serie_int")
+        num_int = cast(func.nullif(func.regexp_replace(func.split_part(Factura.numeroFactura, "-", 2), "[^0-9]", "", "g"), ""), BigInteger).label("num_int")
+
+        if order and order.lower() == "desc":
+            stmt = stmt.order_by(desc(serie_int), desc(num_int), desc(Factura.numeroFactura))
+        else:
+            stmt = stmt.order_by(asc(serie_int), asc(num_int), asc(Factura.numeroFactura))
+    elif sort and hasattr(Factura, sort):
+        col = getattr(Factura, sort)
+        stmt = stmt.order_by(desc(col) if (order and order.lower() == "desc") else asc(col))
+
+    offset = max(0, (page - 1)) * page_size
+    results = session.exec(stmt.offset(offset).limit(page_size)).all()
+
+    # Serialize items with formatted dates and contact name
+    serialized_items = [serialize_factura(row[0], row[1]) for row in results]
+
     return {"data": serialized_items, "total": total, "aggregates": aggregates}
 
 
 @router.get("/{numeroFactura}")
-def get_factura(numeroFactura: str):
-    with Session(engine) as s:
-        obj = s.get(Factura, numeroFactura)
-        if not obj:
-            raise HTTPException(status_code=404, detail="Factura not found")
-        return serialize_factura(obj)
+def get_factura(numeroFactura: str, session: Session = Depends(get_session)):
+    stmt = select(Factura, Contacto.Nombre).outerjoin(Contacto, Factura.NIFCliente == Contacto.NIF).where(Factura.numeroFactura == numeroFactura)
+    result = session.exec(stmt).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Factura not found")
+    return serialize_factura(result[0], result[1])
 
 
 @router.post("", status_code=201)

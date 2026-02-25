@@ -9,6 +9,7 @@ export default function EntityList({ endpoint }) {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [externalViewing, setExternalViewing] = useState(null); // { item, endpoint }
   const [columns, setColumns] = useState([]);
   const [error, setError] = useState(null);
   const requestIdRef = useRef(0);
@@ -21,21 +22,51 @@ export default function EntityList({ endpoint }) {
 
   function getColField(c) { return typeof c === 'object' ? c.field : c; }
   function getColLabel(c) { return typeof c === 'object' ? (c.label || c.field) : c; }
-  function getColWidth(c) { return (typeof c === 'object' && c.width) ? c.width : "auto"; }
+  function getColWidth(c) {
+    if (typeof c !== 'object') return "auto";
+    return c.widthList || c.width || "auto";
+  }
 
   function getTitleValue(item, cols) {
     if (!item || !cols) return "";
+
+    // Sesión: Sesion + Nombre Contacto + Producto + Periodo
+    if (endpoint === "sesiones") {
+      const nombre = item.nombreContacto || "";
+      let producto = item.IDProducto || "";
+      let periodo = item.IDPeriodo || "";
+
+      // Try to get descriptions from fieldOptions
+      if (fieldOptions.productos) {
+        const prod = fieldOptions.productos.find(p => p.IDProducto === item.IDProducto);
+        if (prod) producto = prod.descProducto || prod.IDProducto;
+      }
+      if (fieldOptions.periodos) {
+        const peri = fieldOptions.periodos.find(p => p.IDPeriodo === item.IDPeriodo);
+        if (peri) periodo = peri.descPeriodo || peri.IDPeriodo;
+      }
+
+      return `Sesión: ${nombre} - ${producto} - ${periodo}`;
+    }
+
+    // Factura: Factura + Nº Factura + Contacto
+    if (endpoint === "facturas") {
+      const num = item.numeroFactura || "";
+      const nom = item.nombreContacto || "";
+      return `Factura: ${num} ${nom}`.trim();
+    }
+
     const titleCol = cols.find(c => typeof c === 'object' && c.isTitle);
     if (titleCol) {
       const val = item[titleCol.field];
-      if (val) return `- ${val}`;
+      if (val) return val;
     }
-    // Fallback if no isTitle defined, try to find a name-like field or first string
+    // Fallback
     const fallback = cols.find(c => {
       const f = getColField(c);
       return typeof item[f] === 'string' && (f.toLowerCase().includes("nombre") || f.toLowerCase().includes("desc") || f.toLowerCase().includes("alias"));
     });
-    if (fallback) return `- ${item[getColField(fallback)]}`;
+    if (fallback) return item[getColField(fallback)];
     return "";
   }
 
@@ -51,8 +82,9 @@ export default function EntityList({ endpoint }) {
   // applied filters / search used by load()
   const [filters, setFilters] = useState({}); // { column: value }
   const [globalQ, setGlobalQ] = useState("");
-  const [filterYear, setFilterYear] = useState("");
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterPeriod, setFilterPeriod] = useState(""); // Q1-Q4 or M1-M12
+  const [filterFacturado, setFilterFacturado] = useState('all'); // 'all', 'true', 'false'
 
   // local input buffers (do not trigger requests on each keystroke)
   const [filterInputs, setFilterInputs] = useState({});
@@ -77,18 +109,19 @@ export default function EntityList({ endpoint }) {
     setFilterInputs({});
     setGlobalQ("");
     setGlobalInput("");
-    setFilterYear("");
+    setFilterYear(new Date().getFullYear().toString());
     setFilterPeriod("");
     setSortField(null);
     setSortDir("asc");
     setShowNewWithOptions(false);
     setEditing(null);
     setViewing(null);
+    setExternalViewing(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod, filterFacturado]);
 
   const [aggregates, setAggregates] = useState(null);
 
@@ -110,7 +143,10 @@ export default function EntityList({ endpoint }) {
         sort: sortField || undefined,
         order: sortDir || undefined,
         q: globalQ || undefined,
-        filters: filters && Object.keys(filters).length ? filters : undefined,
+        filters: {
+          ...(filters && Object.keys(filters).length ? filters : {}),
+          ...(endpoint === 'sesiones' && filterFacturado !== 'all' ? { facturado: filterFacturado } : {})
+        },
         start_date: start_date || undefined,
         end_date: end_date || undefined
       };
@@ -319,20 +355,30 @@ export default function EntityList({ endpoint }) {
   async function startEdit(item) {
     try {
       console.log("[EntityList] startEdit called for item:", item);
-      setEditing(item);
-      // IMPORTANT: Always use modelsMap for form, not columns (which may be empty)
       const cols = modelsMap[endpoint] || [];
-      console.log("[EntityList] columns from modelsMap:", cols.length, "columns");
-
       if (cols.length) {
-        console.log("[EntityList] loading field options for sources:", cols.filter(c => c.source).map(c => c.source));
         await loadFieldOptions(cols);
-        console.log("[EntityList] field options loaded");
       }
+      setEditing(item);
     } catch (err) {
       console.error("[EntityList] Error in startEdit:", err);
       setEditing(null);
       alert("Error abriendo formulario: " + (err.message || err));
+    }
+  }
+
+  async function startView(item) {
+    try {
+      console.log("[EntityList] startView called for item:", item);
+      const cols = modelsMap[endpoint] || [];
+      if (cols.length) {
+        await loadFieldOptions(cols);
+      }
+      setViewing(item);
+    } catch (err) {
+      console.error("[EntityList] Error in startView:", err);
+      setViewing(null);
+      alert("Error abriendo vista: " + (err.message || err));
     }
   }
 
@@ -360,6 +406,21 @@ export default function EntityList({ endpoint }) {
       console.error("[EntityList] Error in startNew:", err);
       setLoadingOptions(false);
       alert("Error abriendo formulario: " + (err.message || err));
+    }
+  }
+
+  async function handleViewExternal(targetEndpoint, idValue) {
+    try {
+      console.log(`[EntityList] handleViewExternal for ${targetEndpoint}: ${idValue}`);
+      const item = await API.fetchOne(targetEndpoint, idValue);
+      const cols = modelsMap[targetEndpoint] || [];
+      if (cols.length) {
+        await loadFieldOptions(cols);
+      }
+      setExternalViewing({ item, endpoint: targetEndpoint });
+    } catch (err) {
+      console.error("[EntityList] Error in handleViewExternal:", err);
+      alert("Error cargando elemento externo: " + (err.message || err));
     }
   }
 
@@ -527,320 +588,382 @@ export default function EntityList({ endpoint }) {
           )}
         </div>
 
-        <div className="entity-list-controls">
-          {endpoint === "sesiones" && selectedIds.size > 0 && (
-            <>
-              {(() => {
-                const hasBilled = Array.from(selectedIds).some(id => {
-                  const item = items.find(it => it[getIdKey(it)] == id);
-                  return item && item.facturado === 'FACTURADO';
-                });
-                return (
-                  <button
-                    onClick={() => confirmBilling()}
-                    disabled={hasBilled}
-                    title={hasBilled ? "No se pueden facturar sesiones que ya están facturadas" : ""}
-                    style={{
-                      marginRight: 8,
-                      background: hasBilled ? "#94a3b8" : "#059669",
-                      color: "white",
-                      borderColor: hasBilled ? "#94a3b8" : "#059669",
-                      cursor: hasBilled ? "not-allowed" : "pointer"
-                    }}
-                  >
-                    💰 Facturar Sesión
-                  </button>
-                );
-              })()}
-              <button onClick={() => openCloneModal()} style={{ marginRight: 12, background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
-                ⚡ Clonar a Periodo
-              </button>
-            </>
-          )}
-          <div className="pagination-group">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} title="Previous page">«</button>
-            <span>{page}</span>
-            <button onClick={() => { if (hasMore) setPage(p => p + 1); else setPage(p => p + 1); }} disabled={loading || (items.length === 0 && page > 1 && !hasMore)} title="Next page">»</button>
+        <div className="pagination-group">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} title="Previous page">«</button>
+          <span>{page}</span>
+          <button onClick={() => { if (hasMore) setPage(p => p + 1); else setPage(p => p + 1); }} disabled={loading || (items.length === 0 && page > 1 && !hasMore)} title="Next page">»</button>
 
-            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} title="Items per page">
-              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <span style={{ marginLeft: 8, fontSize: "0.9em", color: "#666" }}>
-              Mostrando {Math.min((page - 1) * pageSize + 1, totalItems)} - {Math.min(page * pageSize, totalItems)} de {totalItems}
-            </span>
-          </div>
+          <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} title="Items per page">
+            {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <span style={{ marginLeft: 8, fontSize: "0.9em", color: "#666" }}>
+            Mostrando {Math.min((page - 1) * pageSize + 1, totalItems)} - {Math.min(page * pageSize, totalItems)} de {totalItems}
+          </span>
+        </div>
 
-          {(endpoint === "sesiones" || endpoint === "facturas") && (
-            <div className="filter-group" style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
-              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: "4px 8px" }}>
-                <option value="">Año</option>
-                {Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-              <select value={filterPeriod} onChange={e => { setFilterPeriod(e.target.value); setPage(1); }} title="Filtrar por Periodo" style={{ padding: "4px 8px", minWidth: 120 }}>
-                <option value="">Periodo</option>
-                <optgroup label="Trimestres">
-                  <option value="Q1">Trimestre 1</option>
-                  <option value="Q2">Trimestre 2</option>
-                  <option value="Q3">Trimestre 3</option>
-                  <option value="Q4">Trimestre 4</option>
-                </optgroup>
-                <optgroup label="Meses">
-                  <option value="M1">Enero</option>
-                  <option value="M2">Febrero</option>
-                  <option value="M3">Marzo</option>
-                  <option value="M4">Abril</option>
-                  <option value="M5">Mayo</option>
-                  <option value="M6">Junio</option>
-                  <option value="M7">Julio</option>
-                  <option value="M8">Agosto</option>
-                  <option value="M9">Septiembre</option>
-                  <option value="M10">Octubre</option>
-                  <option value="M11">Noviembre</option>
-                  <option value="M12">Diciembre</option>
-                </optgroup>
-              </select>
-            </div>
-          )}
-
-          <div className="search-container">
-            <input
-              className="search-input"
-              placeholder={`🔍 Buscar en ${endpoint}...`}
-              value={globalInput}
-              onChange={e => onGlobalInputChange(e.target.value)}
-              onKeyDown={onGlobalInputKeyDown}
-            />
-          </div>
-
-          <div className="entity-list-actions">
-            <button onClick={load}>Refrescar</button>
-            <button className="primary" onClick={startNew}>Nuevo</button>
-          </div>
+        <div className="entity-list-actions">
+          <button onClick={load}>Refrescar</button>
+          <button className="primary" onClick={startNew}>Nuevo</button>
         </div>
       </div>
 
-      {error && (
-        <div className="card" style={{ background: "#fff6f6", border: "1px solid #fecaca", color: "#9f1239", marginBottom: 12 }}>
-          <strong>Error al cargar {endpoint}:</strong>
-          <div style={{ marginTop: 6, fontFamily: "monospace" }}>{error}</div>
+      <div className="static-filters-bar" style={{
+        display: 'flex',
+        gap: '12px',
+        alignItems: 'center',
+        marginBottom: '16px',
+        padding: '12px',
+        background: '#f8fafc',
+        borderRadius: '8px',
+        border: '1px solid #e2e8f0',
+        flexWrap: 'wrap'
+      }}>
+        <div className="search-container" style={{ flex: 1, minWidth: '200px', margin: 0 }}>
+          <input
+            className="search-input"
+            style={{ width: '100%' }}
+            placeholder={`🔍 Buscar en ${endpoint}...`}
+            value={globalInput}
+            onChange={e => onGlobalInputChange(e.target.value)}
+            onKeyDown={onGlobalInputKeyDown}
+          />
         </div>
-      )}
 
-      {aggregates && (
-        <div style={{
-          background: "#f1f5f9",
-          padding: "10px 16px",
-          borderRadius: 8,
-          marginBottom: 12,
-          display: "flex",
-          gap: 20,
-          fontSize: 14,
-          fontWeight: 600,
-          border: "1px solid var(--border)",
-          color: "var(--text)"
-        }}>
-          <span style={{ color: "var(--muted)" }}>RESUMEN:</span>
-          {Object.entries(aggregates).map(([k, v]) => {
-            const label = k === 'base' ? 'BASE' : k === 'total' ? 'TOTAL' : k === 'totalPagado' ? 'PAGADO' : k === 'pendiente' ? 'PENDIENTE' : k.toUpperCase();
-            return (
-              <div key={k} style={{ display: "flex", gap: 6 }}>
-                <span style={{ color: "var(--muted)" }}>{label}:</span>
-                <span style={{ color: "var(--primary-1)" }}>
-                  {v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+        {endpoint === "sesiones" && (
+          <select
+            value={filterFacturado}
+            onChange={(e) => { setFilterFacturado(e.target.value); setPage(1); }}
+            style={{ padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', background: 'white', minWidth: '180px' }}
+          >
+            <option value="all">Filtro Facturación: Todos</option>
+            <option value="true">Solo Facturados</option>
+            <option value="false">Solo No Facturados</option>
+          </select>
+        )}
 
-      {loading ? <div className="card">Cargando...</div> : (
-        <>
-          {(!items || items.length === 0) ? (
-            <div className="card"><em className="muted">No hay elementos para "{endpoint}".</em>
-              <div style={{ marginTop: 8 }} className="pretty-json">Última respuesta: {items && items.length === 0 ? "[]" : JSON.stringify(items, null, 2)}</div>
-            </div>
-          ) : (
-            <>
-              {columns.length === 0 ? (
-                <div className="card">
-                  <em>Vista (JSON)</em>
-                  {items.map((it, idx) => (
-                    <div key={idx} style={{ marginBottom: 10 }}>
-                      <div className="pretty-json">{JSON.stringify(it, null, 2)}</div>
-                      <div style={{ marginTop: 6 }}>
-                        <button onClick={() => startEdit(it)}>Editar</button>
-                        <button style={{ marginLeft: 8 }} onClick={() => remove(it)}>Borrar</button>
-                      </div>
-                    </div>
-                  ))}
+        {(endpoint === "sesiones" || endpoint === "facturas") && (
+          <div className="filter-group" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: "8px", borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+              <option value="">Año</option>
+              {Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <select value={filterPeriod} onChange={e => { setFilterPeriod(e.target.value); setPage(1); }} title="Filtrar por Periodo" style={{ padding: "8px", borderRadius: '6px', border: '1px solid #e2e8f0', minWidth: 120 }}>
+              <option value="">Periodo</option>
+              <optgroup label="Trimestres">
+                <option value="Q1">Trimestre 1</option>
+                <option value="Q2">Trimestre 2</option>
+                <option value="Q3">Trimestre 3</option>
+                <option value="Q4">Trimestre 4</option>
+              </optgroup>
+              <optgroup label="Meses">
+                <option value="M1">Enero</option>
+                <option value="M2">Febrero</option>
+                <option value="M3">Marzo</option>
+                <option value="M4">Abril</option>
+                <option value="M5">Mayo</option>
+                <option value="M6">Junio</option>
+                <option value="M7">Julio</option>
+                <option value="M8">Agosto</option>
+                <option value="M9">Septiembre</option>
+                <option value="M10">Octubre</option>
+                <option value="M11">Noviembre</option>
+                <option value="M12">Diciembre</option>
+              </optgroup>
+            </select>
+          </div>
+        )}
+
+        {endpoint === "sesiones" && selectedIds.size > 0 && (
+          <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+            {(() => {
+              const hasBilled = Array.from(selectedIds).some(id => {
+                const item = items.find(it => it[getIdKey(it)] == id);
+                return item && item.facturado === true;
+              });
+              return (
+                <button
+                  onClick={() => confirmBilling()}
+                  disabled={hasBilled}
+                  title={hasBilled ? "No se pueden facturar sesiones que ya están facturadas" : ""}
+                  style={{
+                    background: hasBilled ? "#94a3b8" : "#059669",
+                    color: "white",
+                    borderColor: hasBilled ? "#94a3b8" : "#059669",
+                    cursor: hasBilled ? "not-allowed" : "pointer"
+                  }}
+                >
+                  💰 Facturar
+                </button>
+              );
+            })()}
+            <button onClick={() => openCloneModal()} style={{ background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
+              ⚡ Clonar
+            </button>
+          </div>
+        )}
+      </div>
+
+      {
+        error && (
+          <div className="card" style={{ background: "#fff6f6", border: "1px solid #fecaca", color: "#9f1239", marginBottom: 12 }}>
+            <strong>Error al cargar {endpoint}:</strong>
+            <div style={{ marginTop: 6, fontFamily: "monospace" }}>{error}</div>
+          </div>
+        )
+      }
+
+      {
+        aggregates && (
+          <div style={{
+            background: "#f1f5f9",
+            padding: "10px 16px",
+            borderRadius: 8,
+            marginBottom: 12,
+            display: "flex",
+            gap: 20,
+            fontSize: 14,
+            fontWeight: 600,
+            border: "1px solid var(--border)",
+            color: "var(--text)"
+          }}>
+            <span style={{ color: "var(--muted)" }}>RESUMEN:</span>
+            {Object.entries(aggregates).map(([k, v]) => {
+              const label = k === 'base' ? 'BASE' : k === 'total' ? 'TOTAL' : k === 'totalPagado' ? 'PAGADO' : k === 'pendiente' ? 'PENDIENTE' : k.toUpperCase();
+              return (
+                <div key={k} style={{ display: "flex", gap: 6 }}>
+                  <span style={{ color: "var(--muted)" }}>{label}:</span>
+                  <span style={{ color: "var(--primary-1)" }}>
+                    {v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€
+                  </span>
                 </div>
-              ) : (
-                <div className="table-container">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        {endpoint === "sesiones" && (
-                          <th style={{ width: 40, textAlign: "center" }}>
-                            <input
-                              type="checkbox"
-                              checked={items.length > 0 && selectedIds.size === items.length}
-                              onChange={toggleSelectAll}
-                            />
-                          </th>
-                        )}
-                        {columns.filter(col => typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title')).map(col => {
-                          const c = getColField(col);
-                          const label = getColLabel(col);
-                          const width = getColWidth(col);
-                          return (
-                            <th key={c} style={{ cursor: "pointer", width: width, minWidth: width !== "auto" ? width : undefined }} onClick={() => toggleSort(c)}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                {label} {sortField === c ? (sortDir === "asc" ? "▲" : "▼") : <span style={{ opacity: 0.3 }}>⇅</span>}
-                              </div>
-                            </th>
-                          );
-                        })}
-                        <th style={{ width: 160 }}>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((it, idx) => (
-                        <tr key={idx} className={selectedIds.has(it[getIdKey(it)]) ? "row-selected" : ""}>
+              );
+            })}
+          </div>
+        )
+      }
+
+      {
+        loading ? <div className="card">Cargando...</div> : (
+          <>
+            {(!items || items.length === 0) ? (
+              <div className="card"><em className="muted">No hay elementos para "{endpoint}".</em>
+                <div style={{ marginTop: 8 }} className="pretty-json">Última respuesta: {items && items.length === 0 ? "[]" : JSON.stringify(items, null, 2)}</div>
+              </div>
+            ) : (
+              <>
+                {columns.length === 0 ? (
+                  <div className="card">
+                    <em>Vista (JSON)</em>
+                    {items.map((it, idx) => (
+                      <div key={idx} style={{ marginBottom: 10 }}>
+                        <div className="pretty-json">{JSON.stringify(it, null, 2)}</div>
+                        <div style={{ marginTop: 6 }}>
+                          <button onClick={() => startEdit(it)}>Editar</button>
+                          <button style={{ marginLeft: 8 }} onClick={() => remove(it)}>Borrar</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="table-container">
+                    <table className="table">
+                      <thead>
+                        <tr>
                           {endpoint === "sesiones" && (
-                            <td style={{ textAlign: "center" }}>
+                            <th style={{ width: 40, textAlign: "center" }}>
                               <input
                                 type="checkbox"
-                                checked={selectedIds.has(it[getIdKey(it)])}
-                                onChange={() => toggleSelect(it)}
+                                checked={items.length > 0 && selectedIds.size === items.length}
+                                onChange={toggleSelectAll}
+                              />
+                            </th>
+                          )}
+                          {columns.filter(col => (typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title' && col.hideInList !== true))).map(col => {
+                            const c = getColField(col);
+                            const label = getColLabel(col);
+                            const width = getColWidth(col);
+                            return (
+                              <th key={c} style={{ cursor: "pointer", width: width, minWidth: width !== "auto" ? width : undefined }} onClick={() => toggleSort(c)}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  {label} {sortField === c ? (sortDir === "asc" ? "▲" : "▼") : <span style={{ opacity: 0.3 }}>⇅</span>}
+                                </div>
+                              </th>
+                            );
+                          })}
+                          <th style={{ width: 160 }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((it, idx) => (
+                          <tr key={idx} className={selectedIds.has(it[getIdKey(it)]) ? "row-selected" : ""}>
+                            {endpoint === "sesiones" && (
+                              <td style={{ textAlign: "center" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(it[getIdKey(it)])}
+                                  onChange={() => toggleSelect(it)}
+                                />
+                              </td>
+                            )}
+                            {columns.filter(col => (typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title' && col.hideInList !== true))).map(col => {
+                              const c = getColField(col);
+                              const val = it[c];
+                              // Custom renderer for Facturado status
+                              if (c === 'facturado') {
+                                if (val === true) return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
+                                return <td key={c} style={{ textAlign: 'center', color: '#94a3b8' }}>—</td>;
+                              }
+                              return <td key={c}>{renderCell(val)}</td>
+                            })}
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              <ActionMenu
+                                onEdit={() => startEdit(it)}
+                                onDelete={() => remove(it)}
+                                onView={() => startView(it)}
+                                canEdit={
+                                  endpoint === "sesiones"
+                                    ? (it.facturado !== true && it.numeroFactura == null)
+                                    : endpoint !== "facturas"
+                                }
+                                canDelete={
+                                  endpoint === "sesiones"
+                                    ? (it.facturado !== true && it.numeroFactura == null)
+                                    : endpoint !== "facturas"
+                                }
                               />
                             </td>
-                          )}
-                          {columns.filter(col => typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title')).map(col => {
-                            const c = getColField(col);
-                            const val = it[c];
-                            // Custom renderer for Facturado status
-                            if (c === 'facturado' && val === 'FACTURADO') {
-                              return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
-                            }
-                            return <td key={c}>{renderCell(val)}</td>
-                          })}
-                          <td style={{ whiteSpace: "nowrap" }}>
-                            <ActionMenu
-                              onEdit={() => startEdit(it)}
-                              onDelete={() => remove(it)}
-                              onView={() => setViewing(it)}
-                              canEdit={endpoint !== "facturas"}
-                              canDelete={
-                                endpoint === "sesiones"
-                                  ? (it.facturado !== "FACTURADO" && it.numeroFactura == null)
-                                  : endpoint !== "facturas"
-                              }
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )
+      }
 
-      {editing && (
-        <div className="modal-backdrop" onClick={() => setEditing(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Editar {getTitleValue(editing, columns)}</h3>
-            <EntityForm
-              columns={columns.length ? columns : Object.keys(editing)}
-              item={editing}
-              onSave={saveEdit}
-              onCancel={() => setEditing(null)}
-              isNew={false}
-              keepStringFields={endpoint === "contactos" ? contactosKeep : []}
-              fieldOptions={fieldOptions}
-            />
-          </div>
-        </div>
-      )}
-
-      {showNewWithOptions && (
-        <div className="modal-backdrop" onClick={() => setShowNewWithOptions(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Nuevo</h3>
-            {loadingOptions ? (
-              <div style={{ padding: "20px", textAlign: "center" }}>Cargando opciones...</div>
-            ) : (
+      {
+        editing && (
+          <div className="modal-backdrop" onClick={() => setEditing(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h3>{getTitleValue(editing, columns)}</h3>
               <EntityForm
-                columns={modelsMap[endpoint] || []}
-                item={{}}
-                onSave={createNew}
-                onCancel={() => setShowNewWithOptions(false)}
-                isNew={true}
+                columns={columns.length ? columns : Object.keys(editing)}
+                item={editing}
+                onSave={saveEdit}
+                onCancel={() => setEditing(null)}
+                isNew={false}
                 keepStringFields={endpoint === "contactos" ? contactosKeep : []}
                 fieldOptions={fieldOptions}
+                onViewExternal={handleViewExternal}
               />
-            )}
-          </div>
-        </div>
-      )}
-
-      {viewing && (
-        <div className="modal-backdrop" onClick={() => setViewing(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Ver {getTitleValue(viewing, columns)}</h3>
-            <EntityForm
-              columns={columns.length ? columns : Object.keys(viewing)}
-              item={viewing}
-              onCancel={() => setViewing(null)}
-              readOnly={true}
-              endpoint={endpoint}
-              onClone={(item) => {
-                setViewing(null);
-                openCloneModal(item);
-              }}
-              onInvoice={(item) => {
-                setViewing(null);
-                confirmBilling(item);
-              }}
-            />
-          </div>
-        </div>
-      )}
-      {showCloneModal && (
-        <div className="modal-backdrop" onClick={() => setShowCloneModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
-            <h3>Clonar Sesiones</h3>
-            <p>Se clonarán {selectedIds.size} sesiones seleccionadas.</p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-              <label>Periodo Destino:</label>
-              <select
-                value={cloneTargetPeriod}
-                onChange={e => setCloneTargetPeriod(e.target.value)}
-                style={{ width: "100%", padding: 8 }}
-              >
-                <option value="">-- Seleccionar --</option>
-                {Array.isArray(periodOptions) && periodOptions.map(p => (
-                  <option key={p.IDPeriodo} value={p.IDPeriodo}>
-                    {p.descPeriodo} ({p.IDPeriodo})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button onClick={() => { setShowCloneModal(false); setCloningItem(null); }}>Cancelar</button>
-              <button className="primary" onClick={confirmClone} disabled={!cloneTargetPeriod}>Confirmar</button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {
+        showNewWithOptions && (
+          <div className="modal-backdrop" onClick={() => setShowNewWithOptions(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h3>Nuevo {endpoint.slice(0, -1)}</h3>
+              {loadingOptions ? (
+                <div style={{ padding: "20px", textAlign: "center" }}>Cargando opciones...</div>
+              ) : (
+                <EntityForm
+                  columns={modelsMap[endpoint] || []}
+                  item={{}}
+                  onSave={createNew}
+                  onCancel={() => setShowNewWithOptions(false)}
+                  isNew={true}
+                  keepStringFields={endpoint === "contactos" ? contactosKeep : []}
+                  fieldOptions={fieldOptions}
+                />
+              )}
+            </div>
+          </div>
+        )
+      }
+
+      {
+        viewing && (
+          <div className="modal-backdrop" onClick={() => setViewing(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h3>{getTitleValue(viewing, columns)}</h3>
+              <EntityForm
+                columns={modelsMap[endpoint] || columns || Object.keys(viewing)}
+                item={viewing}
+                onCancel={() => setViewing(null)}
+                readOnly={true}
+                endpoint={endpoint}
+                fieldOptions={fieldOptions}
+                onClone={(item) => {
+                  setViewing(null);
+                  openCloneModal(item);
+                }}
+                onInvoice={(item) => {
+                  setViewing(null);
+                  confirmBilling(item);
+                }}
+                onViewExternal={handleViewExternal}
+              />
+            </div>
+          </div>
+        )
+      }
+      {
+        externalViewing && (
+          <div className="modal-backdrop" onClick={() => setExternalViewing(null)} style={{ zIndex: 1100 }}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h3>{getTitleValue(externalViewing.item, modelsMap[externalViewing.endpoint])}</h3>
+              <EntityForm
+                columns={modelsMap[externalViewing.endpoint] || []}
+                item={externalViewing.item}
+                onCancel={() => setExternalViewing(null)}
+                readOnly={true}
+                endpoint={externalViewing.endpoint}
+                fieldOptions={fieldOptions}
+              />
+            </div>
+          </div>
+        )
+      }
+      {
+        showCloneModal && (
+          <div className="modal-backdrop" onClick={() => setShowCloneModal(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
+              <h3>Clonar Sesiones</h3>
+              <p>Se clonarán {selectedIds.size} sesiones seleccionadas.</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                <label>Periodo Destino:</label>
+                <select
+                  value={cloneTargetPeriod}
+                  onChange={e => setCloneTargetPeriod(e.target.value)}
+                  style={{ width: "100%", padding: 8 }}
+                >
+                  <option value="">-- Seleccionar --</option>
+                  {Array.isArray(periodOptions) && periodOptions.map(p => (
+                    <option key={p.IDPeriodo} value={p.IDPeriodo}>
+                      {p.descPeriodo} ({p.IDPeriodo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => { setShowCloneModal(false); setCloningItem(null); }}>Cancelar</button>
+                <button className="primary" onClick={confirmClone} disabled={!cloneTargetPeriod}>Confirmar</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 }
 function renderCell(value) {

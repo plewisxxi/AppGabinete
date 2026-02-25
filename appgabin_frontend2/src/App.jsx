@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import EntityList from "./components/EntityList";
 import Sidebar from "./components/Sidebar";
+import Dashboard from "./components/Dashboard";
 
 export default function App() {
-  const [entity, setEntity] = useState("contactos"); // Default to 'contactos' as it has improved filters
+  const [entity, setEntity] = useState("dashboard"); // Default to dashboard
 
   return (
     <div className="app-layout">
@@ -11,12 +12,13 @@ export default function App() {
 
       <main className="main-content">
         <div className="container">
-          {/* Header removed from here as navigation is now in Sidebar */}
-          {/* We can keep a page title if needed, or let EntityList handle it */}
-
-          <div className="card">
-            <EntityList endpoint={entity} />
-          </div>
+          {entity === "dashboard" ? (
+            <Dashboard />
+          ) : (
+            <div className="card">
+              <EntityList endpoint={entity} />
+            </div>
+          )}
         </div>
       </main>
     </div>

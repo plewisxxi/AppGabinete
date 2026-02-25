@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .routers import contactos, productos, periodos, facturas, sesiones
+from .routers import contactos, productos, periodos, facturas, sesiones, stats
 
 app = FastAPI(title="AppGabinete API", version="1.0.0")
 app.add_middleware(
@@ -20,3 +20,4 @@ app.include_router(sesiones.router, prefix="/api/sesiones", tags=["sesiones"])
 app.include_router(productos.router, prefix="/api/productos", tags=["productos"])
 app.include_router(periodos.router, prefix="/api/periodos", tags=["periodos"])
 app.include_router(facturas.router, prefix="/api/facturas", tags=["facturas"])
+app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
