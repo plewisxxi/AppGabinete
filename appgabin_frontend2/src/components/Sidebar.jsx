@@ -9,6 +9,7 @@ export default function Sidebar({ current, onChange }) {
         { id: "contactos", label: "Contactos", icon: "👥" },
         { id: "sesiones", label: "Sesiones", icon: "📅" },
         { id: "facturas", label: "Facturas", icon: "📄" },
+        { id: "gastos", label: "Gastos", icon: "💸" },
         { id: "productos", label: "Productos", icon: "📦" },
         { id: "periodos", label: "Periodos", icon: "⏳" },
     ];

@@ -42,28 +42,66 @@ const CustomTooltip = ({ active, payload, label }) => {
     return null;
 };
 
+const GastosTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        const totalSum = (data.total_pagado || 0) + (data.total_pendiente || 0);
+        return (
+            <div className="custom-tooltip" style={{
+                backgroundColor: '#fff',
+                padding: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+            }}>
+                <p style={{ margin: '0 0 8px 0', fontWeight: 'bold' }}>{label}</p>
+                <p style={{ margin: '0 0 4px 0', color: '#1e293b' }}>
+                    <strong>Total: {totalSum.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</strong>
+                </p>
+                <div style={{ borderTop: '1px solid #e2e8f0', margin: '8px 0', paddingTop: '8px' }}>
+                    <p style={{ margin: '0 0 4px 0', color: '#10b981', fontSize: '13px' }}>
+                        Pagado: {(data.total_pagado || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                    </p>
+                    <p style={{ margin: '0', color: '#ef4444', fontSize: '13px' }}>
+                        Pendiente: {(data.total_pendiente || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                    </p>
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
+
 export default function Dashboard() {
     const [year, setYear] = useState(new Date().getFullYear());
     const [groupingEstado, setGroupingEstado] = useState("monthly");
     const [groupingFact, setGroupingFact] = useState("monthly");
+    const [groupingGastos, setGroupingGastos] = useState("monthly");
 
     const [estadoData, setEstadoData] = useState([]);
     const [facturacionData, setFacturacionData] = useState([]);
+    const [gastosData, setGastosData] = useState([]);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         loadData();
-    }, [year, groupingEstado, groupingFact]);
+    }, [year, groupingEstado, groupingFact, groupingGastos]);
 
     async function loadData() {
         setLoading(true);
         try {
-            const [resEstado, resFact] = await Promise.all([
-                API.fetchStats("sesiones-estado", { year, group_by: groupingEstado }),
-                API.fetchStats("facturacion-total", { year, group_by: groupingFact })
-            ]);
-            setEstadoData(resEstado);
-            setFacturacionData(resFact);
+            // Fetch individually to avoid one failing chart blocking others
+            API.fetchStats("sesiones-estado", { year, group_by: groupingEstado })
+                .then(setEstadoData)
+                .catch(err => console.error("Error loading sesiones-estado:", err));
+
+            API.fetchStats("facturacion-total", { year, group_by: groupingFact })
+                .then(setFacturacionData)
+                .catch(err => console.error("Error loading facturacion-total:", err));
+
+            API.fetchStats("gastos-total", { year, group_by: groupingGastos })
+                .then(setGastosData)
+                .catch(err => console.error("Error loading gastos-total:", err));
         } catch (err) {
             console.error("Error loading dashboard data:", err);
         } finally {
@@ -99,7 +137,7 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            <div className="dashboard-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: 32 }}>
+            <div className="dashboard-grid">
 
                 {/* Gráfico 1: Sesiones Facturadas vs No Facturadas (Importes) */}
                 <div className="card" style={{ height: 450 }}>
@@ -145,6 +183,31 @@ export default function Dashboard() {
                                     contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
                                 <Bar dataKey="total" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Gráfico 3: Total Gastos */}
+                <div className="card" style={{ height: 450 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <h3 style={{ margin: 0, fontSize: 18 }}>Total Gastos (€)</h3>
+                        <GroupingSelector current={groupingGastos} onChange={setGroupingGastos} />
+                    </div>
+
+                    <div style={{ width: '100%', height: 320 }}>
+                        <ResponsiveContainer>
+                            <BarChart data={gastosData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                                <YAxis axisLine={false} tickLine={false} />
+                                <Tooltip
+                                    content={<GastosTooltip />}
+                                    cursor={{ fill: '#f8fafc' }}
+                                />
+                                <Legend iconType="circle" />
+                                <Bar name="Pagado" dataKey="total_pagado" stackId="a" fill="#10b981" />
+                                <Bar name="Pendiente" dataKey="total_pendiente" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>

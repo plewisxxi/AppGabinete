@@ -687,3 +687,15 @@ select {
   box-shadow: var(--shadow-lg);
   border-color: var(--primary-2);
 }
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 32px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}

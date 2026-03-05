@@ -27,11 +27,12 @@ export default function EntityList({ endpoint }) {
     return c.widthList || c.width || "auto";
   }
 
-  function getTitleValue(item, cols) {
+  function getTitleValue(item, cols, typeOverride) {
     if (!item || !cols) return "";
+    const type = typeOverride || endpoint;
 
     // Sesión: Sesion + Nombre Contacto + Producto + Periodo
-    if (endpoint === "sesiones") {
+    if (type === "sesiones") {
       const nombre = item.nombreContacto || "";
       let producto = item.IDProducto || "";
       let periodo = item.IDPeriodo || "";
@@ -50,7 +51,7 @@ export default function EntityList({ endpoint }) {
     }
 
     // Factura: Factura + Nº Factura + Contacto
-    if (endpoint === "facturas") {
+    if (type === "facturas") {
       const num = item.numeroFactura || "";
       const nom = item.nombreContacto || "";
       return `Factura: ${num} ${nom}`.trim();
@@ -85,6 +86,7 @@ export default function EntityList({ endpoint }) {
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterPeriod, setFilterPeriod] = useState(""); // Q1-Q4 or M1-M12
   const [filterFacturado, setFilterFacturado] = useState('all'); // 'all', 'true', 'false'
+  const [filterPagado, setFilterPagado] = useState('all'); // 'all', 'true', 'false'
 
   // local input buffers (do not trigger requests on each keystroke)
   const [filterInputs, setFilterInputs] = useState({});
@@ -111,6 +113,8 @@ export default function EntityList({ endpoint }) {
     setGlobalInput("");
     setFilterYear(new Date().getFullYear().toString());
     setFilterPeriod("");
+    setFilterFacturado('all');
+    setFilterPagado('all');
     setSortField(null);
     setSortDir("asc");
     setShowNewWithOptions(false);
@@ -121,7 +125,7 @@ export default function EntityList({ endpoint }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod, filterFacturado]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod, filterFacturado, filterPagado]);
 
   const [aggregates, setAggregates] = useState(null);
 
@@ -145,7 +149,8 @@ export default function EntityList({ endpoint }) {
         q: globalQ || undefined,
         filters: {
           ...(filters && Object.keys(filters).length ? filters : {}),
-          ...(endpoint === 'sesiones' && filterFacturado !== 'all' ? { facturado: filterFacturado } : {})
+          ...(endpoint === 'sesiones' && filterFacturado !== 'all' ? { facturado: filterFacturado } : {}),
+          ...(endpoint === 'gastos' && filterPagado !== 'all' ? { pagado: filterPagado } : {})
         },
         start_date: start_date || undefined,
         end_date: end_date || undefined
@@ -576,6 +581,32 @@ export default function EntityList({ endpoint }) {
   }
 
 
+  async function confirmPayment(item = null) {
+    const itemsToPay = item ? [item] : Array.from(selectedIds).map(id => items.find(it => it[getIdKey(it)] == id)).filter(Boolean);
+
+    if (itemsToPay.length === 0) return;
+
+    const msg = itemsToPay.length === 1
+      ? "¿Marcar este gasto como pagado?"
+      : `¿Marcar ${itemsToPay.length} gastos seleccionados como pagados?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      const ids = itemsToPay.map(it => it[getIdKey(it)]);
+      await API.postAction(endpoint, "pay", { ids });
+      alert(`Pago registrado correctamente para ${itemsToPay.length} gastos.`);
+      setSelectedIds(new Set());
+      if (editing || viewing) {
+        setEditing(null);
+        setViewing(null);
+      }
+      load();
+    } catch (e) {
+      alert("Error registrando pago: " + e.message);
+    }
+  }
+
   return (
     <div>
       <div className="entity-list-header">
@@ -630,18 +661,68 @@ export default function EntityList({ endpoint }) {
         </div>
 
         {endpoint === "sesiones" && (
-          <select
-            value={filterFacturado}
-            onChange={(e) => { setFilterFacturado(e.target.value); setPage(1); }}
-            style={{ padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', background: 'white', minWidth: '180px' }}
-          >
-            <option value="all">Filtro Facturación: Todos</option>
-            <option value="true">Solo Facturados</option>
-            <option value="false">Solo No Facturados</option>
-          </select>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: 'white', padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                <input
+                  type="checkbox"
+                  checked={filterFacturado === 'true'}
+                  onChange={() => {
+                    const next = filterFacturado === 'true' ? 'all' : 'true';
+                    setFilterFacturado(next);
+                    setPage(1);
+                  }}
+                />
+                Facturados
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                <input
+                  type="checkbox"
+                  checked={filterFacturado === 'false'}
+                  onChange={() => {
+                    const next = filterFacturado === 'false' ? 'all' : 'false';
+                    setFilterFacturado(next);
+                    setPage(1);
+                  }}
+                />
+                No Facturados
+              </label>
+            </div>
+          </div>
         )}
 
-        {(endpoint === "sesiones" || endpoint === "facturas") && (
+        {endpoint === "gastos" && (
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: 'white', padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                <input
+                  type="checkbox"
+                  checked={filterPagado === 'true'}
+                  onChange={() => {
+                    const next = filterPagado === 'true' ? 'all' : 'true';
+                    setFilterPagado(next);
+                    setPage(1);
+                  }}
+                />
+                Pagados
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                <input
+                  type="checkbox"
+                  checked={filterPagado === 'false'}
+                  onChange={() => {
+                    const next = filterPagado === 'false' ? 'all' : 'false';
+                    setFilterPagado(next);
+                    setPage(1);
+                  }}
+                />
+                No Pagados
+              </label>
+            </div>
+          </div>
+        )}
+
+        {(endpoint === "sesiones" || endpoint === "facturas" || endpoint === "gastos") && (
           <div className="filter-group" style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: "8px", borderRadius: '6px', border: '1px solid #e2e8f0' }}>
               <option value="">Año</option>
@@ -675,9 +756,9 @@ export default function EntityList({ endpoint }) {
           </div>
         )}
 
-        {endpoint === "sesiones" && selectedIds.size > 0 && (
+        {(endpoint === "sesiones" || endpoint === "gastos") && selectedIds.size > 0 && (
           <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-            {(() => {
+            {endpoint === "sesiones" && (() => {
               const hasBilled = Array.from(selectedIds).some(id => {
                 const item = items.find(it => it[getIdKey(it)] == id);
                 return item && item.facturado === true;
@@ -698,6 +779,29 @@ export default function EntityList({ endpoint }) {
                 </button>
               );
             })()}
+
+            {endpoint === "gastos" && (() => {
+              const hasPaid = Array.from(selectedIds).some(id => {
+                const item = items.find(it => it[getIdKey(it)] == id);
+                return item && (parseFloat(item.total) || 0) === (parseFloat(item.totalPagado) || 0);
+              });
+              return (
+                <button
+                  onClick={() => confirmPayment()}
+                  disabled={hasPaid}
+                  title={hasPaid ? "No se pueden pagar gastos que ya están pagados" : ""}
+                  style={{
+                    background: hasPaid ? "#94a3b8" : "#059669",
+                    color: "white",
+                    borderColor: hasPaid ? "#94a3b8" : "#059669",
+                    cursor: hasPaid ? "not-allowed" : "pointer"
+                  }}
+                >
+                  💳 Pagar
+                </button>
+              );
+            })()}
+
             <button onClick={() => openCloneModal()} style={{ background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
               ⚡ Clonar
             </button>
@@ -771,7 +875,7 @@ export default function EntityList({ endpoint }) {
                     <table className="table">
                       <thead>
                         <tr>
-                          {endpoint === "sesiones" && (
+                          {(endpoint === "sesiones" || endpoint === "gastos") && (
                             <th style={{ width: 40, textAlign: "center" }}>
                               <input
                                 type="checkbox"
@@ -796,46 +900,49 @@ export default function EntityList({ endpoint }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map((it, idx) => (
-                          <tr key={idx} className={selectedIds.has(it[getIdKey(it)]) ? "row-selected" : ""}>
-                            {endpoint === "sesiones" && (
-                              <td style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIds.has(it[getIdKey(it)])}
-                                  onChange={() => toggleSelect(it)}
+                        {items.map((it, idx) => {
+                          const isSelected = selectedIds.has(it[getIdKey(it)]);
+                          return (
+                            <tr key={idx} className={isSelected ? "selected-row" : ""}>
+                              {(endpoint === "sesiones" || endpoint === "gastos") && (
+                                <td style={{ textAlign: "center" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelect(it)}
+                                  />
+                                </td>
+                              )}
+                              {columns.filter(col => (typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title' && col.hideInList !== true))).map(col => {
+                                const c = getColField(col);
+                                const val = it[c];
+                                // Custom renderer for Facturado status
+                                if (c === 'facturado') {
+                                  if (val === true) return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
+                                  return <td key={c} style={{ textAlign: 'center', color: '#94a3b8' }}>—</td>;
+                                }
+                                return <td key={c}>{renderCell(val)}</td>
+                              })}
+                              <td style={{ whiteSpace: "nowrap" }}>
+                                <ActionMenu
+                                  onEdit={() => startEdit(it)}
+                                  onDelete={() => remove(it)}
+                                  onView={() => startView(it)}
+                                  canEdit={
+                                    endpoint === "sesiones"
+                                      ? (it.facturado !== true && it.numeroFactura == null)
+                                      : endpoint !== "facturas"
+                                  }
+                                  canDelete={
+                                    endpoint === "sesiones"
+                                      ? (it.facturado !== true && it.numeroFactura == null)
+                                      : endpoint !== "facturas"
+                                  }
                                 />
                               </td>
-                            )}
-                            {columns.filter(col => (typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title' && col.hideInList !== true))).map(col => {
-                              const c = getColField(col);
-                              const val = it[c];
-                              // Custom renderer for Facturado status
-                              if (c === 'facturado') {
-                                if (val === true) return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
-                                return <td key={c} style={{ textAlign: 'center', color: '#94a3b8' }}>—</td>;
-                              }
-                              return <td key={c}>{renderCell(val)}</td>
-                            })}
-                            <td style={{ whiteSpace: "nowrap" }}>
-                              <ActionMenu
-                                onEdit={() => startEdit(it)}
-                                onDelete={() => remove(it)}
-                                onView={() => startView(it)}
-                                canEdit={
-                                  endpoint === "sesiones"
-                                    ? (it.facturado !== true && it.numeroFactura == null)
-                                    : endpoint !== "facturas"
-                                }
-                                canDelete={
-                                  endpoint === "sesiones"
-                                    ? (it.facturado !== true && it.numeroFactura == null)
-                                    : endpoint !== "facturas"
-                                }
-                              />
-                            </td>
-                          </tr>
-                        ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -850,7 +957,7 @@ export default function EntityList({ endpoint }) {
         editing && (
           <div className="modal-backdrop" onClick={() => setEditing(null)}>
             <div className="modal" onClick={e => e.stopPropagation()}>
-              <h3>{getTitleValue(editing, columns)}</h3>
+              <h3>{getTitleValue(editing, columns, endpoint)}</h3>
               <EntityForm
                 columns={columns.length ? columns : Object.keys(editing)}
                 item={editing}
@@ -860,6 +967,7 @@ export default function EntityList({ endpoint }) {
                 keepStringFields={endpoint === "contactos" ? contactosKeep : []}
                 fieldOptions={fieldOptions}
                 onViewExternal={handleViewExternal}
+                onPay={confirmPayment}
               />
             </div>
           </div>
@@ -893,7 +1001,7 @@ export default function EntityList({ endpoint }) {
         viewing && (
           <div className="modal-backdrop" onClick={() => setViewing(null)}>
             <div className="modal" onClick={e => e.stopPropagation()}>
-              <h3>{getTitleValue(viewing, columns)}</h3>
+              <h3>{getTitleValue(viewing, columns, endpoint)}</h3>
               <EntityForm
                 columns={modelsMap[endpoint] || columns || Object.keys(viewing)}
                 item={viewing}
@@ -910,6 +1018,7 @@ export default function EntityList({ endpoint }) {
                   confirmBilling(item);
                 }}
                 onViewExternal={handleViewExternal}
+                onPay={confirmPayment}
               />
             </div>
           </div>
@@ -919,7 +1028,7 @@ export default function EntityList({ endpoint }) {
         externalViewing && (
           <div className="modal-backdrop" onClick={() => setExternalViewing(null)} style={{ zIndex: 1100 }}>
             <div className="modal" onClick={e => e.stopPropagation()}>
-              <h3>{getTitleValue(externalViewing.item, modelsMap[externalViewing.endpoint])}</h3>
+              <h3>{getTitleValue(externalViewing.item, modelsMap[externalViewing.endpoint], externalViewing.endpoint)}</h3>
               <EntityForm
                 columns={modelsMap[externalViewing.endpoint] || []}
                 item={externalViewing.item}

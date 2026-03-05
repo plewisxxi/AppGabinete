@@ -1,0 +1,12 @@
+Column: id, Type: bigint, Nullable: NO
+Column: created_at, Type: timestamp with time zone, Nullable: NO
+Column: numeroFactura, Type: character varying, Nullable: YES
+Column: fechaEmision, Type: date, Nullable: YES
+Column: contacto, Type: character varying, Nullable: YES
+Column: concepto, Type: text, Nullable: YES
+Column: base, Type: numeric, Nullable: YES
+Column: cantidad, Type: integer, Nullable: YES
+Column: dto, Type: numeric, Nullable: YES
+Column: iva, Type: numeric, Nullable: YES
+Column: fechaPago, Type: date, Nullable: YES
+Column: totalPagado, Type: numeric, Nullable: YES

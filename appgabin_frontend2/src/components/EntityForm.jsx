@@ -12,7 +12,8 @@ export default function EntityForm({
   endpoint,
   onClone,
   onInvoice,
-  onViewExternal
+  onViewExternal,
+  onPay
 }) {
   console.log("[EntityForm] render with fieldOptions:", fieldOptions);
   console.log("[EntityForm] columns:", columns);
@@ -53,17 +54,19 @@ export default function EntityForm({
   // Effect to handle computed fields (like 'pendiente')
   useEffect(() => {
     // Check if there is a 'pendiente' field and it's computed
-    const pendienteCol = columns.find(c => typeof c === 'object' && c.field === 'pendiente' && c.isComputed);
+    const pendienteCol = columns.find(c => typeof c === 'object' && (c.field === 'pendiente' || c.field === 'totalPendiente') && c.isComputed);
     if (pendienteCol) {
+      const field = pendienteCol.field;
       const total = parseFloat(form.total) || 0;
       const pagado = parseFloat(form.totalPagado) || 0;
       const nuevoPendiente = (total - pagado).toFixed(2);
 
-      if (form.pendiente !== nuevoPendiente) {
-        setForm(s => ({ ...s, pendiente: nuevoPendiente }));
+      if (form[field] !== nuevoPendiente) {
+        setForm(s => ({ ...s, [field]: nuevoPendiente }));
       }
     }
-  }, [form.total, form.totalPagado, columns, form.pendiente]);
+  }, [form.total, form.totalPagado, columns]);
+
 
   // Function to handle auto-fills for Sesiones
   const handleSesionAutoFills = (dateVal) => {
@@ -370,6 +373,11 @@ export default function EntityForm({
               </button>
             )}
           </>
+        )}
+        {endpoint === "gastos" && (parseFloat(form.total) || 0) !== (parseFloat(form.totalPagado) || 0) && (
+          <button type="button" onClick={() => onPay(item)} style={{ background: "#059669", color: "white" }}>
+            💳 Pagar
+          </button>
         )}
         {!readOnly && (
           <button

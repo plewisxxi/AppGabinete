@@ -1,4 +1,3 @@
-// ...new file...
 export default {
   contactos: [
     { field: "NIF", label: "NIF", width: "100px" },
@@ -9,8 +8,6 @@ export default {
     { field: "Poblacion", label: "Poblacion", width: "150px" },
     { field: "codigoPostal", label: "CP", width: "50px" },
     { field: "Pais", label: "Pais", width: "100px" }
-    //{ field: "IBAN", label: "IBAN" },
-    //{ field: "SWIFT_BIC", label: "SWIFT_BIC" }
   ],
   productos: [
     { field: "IDProducto", label: "ID", width: "80px" },
@@ -55,5 +52,18 @@ export default {
     { field: "IDPeriodo", label: "Periodo", row: 4, width: "33.33%" },
     { field: "trimestre", label: "Trimestre", row: 4, width: "33.33%" },
     { field: "metodoPago", label: "Método de Pago", row: 2, width: "33.33%", hideInList: true }
+  ],
+  gastos: [
+    { field: "id", label: "ID", readOnly: true, row: 1, width: "50%", widthList: "60px" },
+    { field: "created_at", label: "Creado", readOnly: true, row: 1, width: "50%", hideInList: true },
+    { field: "numeroFactura", label: "Nº Factura", row: 2, width: "50%", widthList: "100px" },
+    { field: "fechaEmision", label: "F. Emisión", type: "date", row: 2, width: "50%", widthList: "110px" },
+    { field: "concepto", label: "Concepto", row: 3, width: "100%", isTitle: true, widthList: "auto" },
+    { field: "contacto", label: "Contacto", row: 4, width: "100%", widthList: "200px" },
+    { field: "total", label: "Total", type: "money", row: 5, width: "33.33%", widthList: "100px" },
+    { field: "totalPagado", label: "Total Pagado", type: "money", row: 5, width: "33.33%", widthList: "100px" },
+    { field: "pendiente", label: "Pendiente", type: "money", row: 5, width: "33.34%", widthList: "100px", readOnly: true, isComputed: true },
+    { field: "paymentTitle", label: "Datos de Pago", type: "title", row: 6 },
+    { field: "fechaPago", label: "F. Pago", type: "date", row: 7, width: "50%", widthList: "110px" },
   ]
 };
