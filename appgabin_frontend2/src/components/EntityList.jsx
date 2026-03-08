@@ -147,14 +147,16 @@ export default function EntityList({ endpoint }) {
         sort: sortField || undefined,
         order: sortDir || undefined,
         q: globalQ || undefined,
+        // pagado is a special top-level filter for gastos endpoint
+        ...(endpoint === 'gastos' && filterPagado !== 'all' ? { pagado: filterPagado } : {}),
         filters: {
           ...(filters && Object.keys(filters).length ? filters : {}),
-          ...(endpoint === 'sesiones' && filterFacturado !== 'all' ? { facturado: filterFacturado } : {}),
-          ...(endpoint === 'gastos' && filterPagado !== 'all' ? { pagado: filterPagado } : {})
+          ...(endpoint === 'sesiones' && filterFacturado !== 'all' ? { facturado: filterFacturado } : {})
         },
         start_date: start_date || undefined,
         end_date: end_date || undefined
       };
+      console.log("[EntityList] loading with params", params);
       const result = await API.fetchList(endpoint, page, pageSize, params);
       if (reqId !== requestIdRef.current) return;
 

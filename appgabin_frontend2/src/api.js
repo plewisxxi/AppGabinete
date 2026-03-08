@@ -1,5 +1,6 @@
 const API = {
-  base: "http://localhost:4000/api",
+  //base: "http://localhost:4000/api",
+  base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
 
   // ahora acepta params: { page, page_size, sort, order, q, filters: { campo: valor } }
   async fetchList(endpoint, page = 1, page_size = 50, params = {}) {
@@ -7,6 +8,7 @@ const API = {
     url.searchParams.set("page", String(page));
     url.searchParams.set("page_size", String(page_size));
 
+    // standard parameters
     if (params.sort) url.searchParams.set("sort", params.sort);
     if (params.order) url.searchParams.set("order", params.order);
     if (params.q) url.searchParams.set("q", params.q);
@@ -15,6 +17,15 @@ const API = {
     if (params.start_date) url.searchParams.set("start_date", params.start_date);
     if (params.end_date) url.searchParams.set("end_date", params.end_date);
 
+    // custom top-level parameters (e.g. pagado) - include any that aren't already handled
+    Object.entries(params).forEach(([k, v]) => {
+      if (v == null) return;
+      if (["sort","order","q","year","quarter","start_date","end_date","filters"].includes(k)) return;
+      // avoid overriding if already set above
+      url.searchParams.set(k, String(v));
+    });
+
+    // filters object (converted to filter_ prefix)
     if (params.filters && typeof params.filters === "object") {
       Object.entries(params.filters).forEach(([k, v]) => {
         if (v !== null && v !== undefined && String(v).trim() !== "") {

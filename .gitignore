@@ -1,3 +1,5 @@
 /.venv
 /Data_sample
 /backend_python/.env
+/TODO
+*.tf

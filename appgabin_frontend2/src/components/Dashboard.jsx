@@ -8,7 +8,9 @@ import {
     Tooltip,
     Legend,
     ResponsiveContainer,
-    Cell
+    Cell,
+    ComposedChart,
+    Line
 } from "recharts";
 import API from "../api";
 
@@ -72,20 +74,50 @@ const GastosTooltip = ({ active, payload, label }) => {
     return null;
 };
 
+const BeneficiosTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="custom-tooltip" style={{
+                backgroundColor: '#fff',
+                padding: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+            }}>
+                <p style={{ margin: '0 0 8px 0', fontWeight: 'bold' }}>{label}</p>
+                <p style={{ margin: '0 0 4px 0', color: '#10b981' }}>
+                    Ingresos: {data.ingresos.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                </p>
+                <p style={{ margin: '0 0 4px 0', color: '#ef4444' }}>
+                    Gastos: {data.gastos.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                </p>
+                <p style={{ margin: '0', color: data.diferencia >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>
+                    Beneficio: {data.diferencia.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                </p>
+            </div>
+        );
+    }
+    return null;
+};
+
+
 export default function Dashboard() {
     const [year, setYear] = useState(new Date().getFullYear());
     const [groupingEstado, setGroupingEstado] = useState("monthly");
     const [groupingFact, setGroupingFact] = useState("monthly");
     const [groupingGastos, setGroupingGastos] = useState("monthly");
+    const [groupingBeneficios, setGroupingBeneficios] = useState("monthly");
 
     const [estadoData, setEstadoData] = useState([]);
     const [facturacionData, setFacturacionData] = useState([]);
     const [gastosData, setGastosData] = useState([]);
+    const [beneficiosData, setBeneficiosData] = useState([]);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         loadData();
-    }, [year, groupingEstado, groupingFact, groupingGastos]);
+    }, [year, groupingEstado, groupingFact, groupingGastos, groupingBeneficios]);
 
     async function loadData() {
         setLoading(true);
@@ -102,10 +134,44 @@ export default function Dashboard() {
             API.fetchStats("gastos-total", { year, group_by: groupingGastos })
                 .then(setGastosData)
                 .catch(err => console.error("Error loading gastos-total:", err));
+
+            // Load beneficios data
+            loadBeneficiosData();
         } catch (err) {
             console.error("Error loading dashboard data:", err);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function loadBeneficiosData() {
+        try {
+            const [factData, gastosData] = await Promise.all([
+                API.fetchStats("facturacion-total", { year, group_by: groupingBeneficios }),
+                API.fetchStats("gastos-total", { year, group_by: groupingBeneficios })
+            ]);
+
+            // Merge data by period
+            const merged = {};
+            factData.forEach(item => {
+                merged[item.name] = { name: item.name, ingresos: item.total || 0, gastos: 0 };
+            });
+            gastosData.forEach(item => {
+                if (merged[item.name]) {
+                    merged[item.name].gastos = (item.total_pagado || 0) + (item.total_pendiente || 0);
+                } else {
+                    merged[item.name] = { name: item.name, ingresos: 0, gastos: (item.total_pagado || 0) + (item.total_pendiente || 0) };
+                }
+            });
+
+            const beneficios = Object.values(merged).map(item => ({
+                ...item,
+                diferencia: item.ingresos - item.gastos
+            }));
+
+            setBeneficiosData(beneficios);
+        } catch (err) {
+            console.error("Error loading beneficios data:", err);
         }
     }
 
@@ -212,6 +278,39 @@ export default function Dashboard() {
                         </ResponsiveContainer>
                     </div>
                 </div>
+
+                {/* Gráfico 4: Ingresos, Gastos y Beneficios */}
+                <div className="card" style={{ height: 450 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <h3 style={{ margin: 0, fontSize: 18 }}>Ingresos, Gastos y Beneficios (€)</h3>
+                        <GroupingSelector current={groupingBeneficios} onChange={setGroupingBeneficios} />
+                    </div>
+
+                    <div style={{ width: '100%', height: 320 }}>
+                        <ResponsiveContainer>
+                            <ComposedChart data={beneficiosData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                                <YAxis axisLine={false} tickLine={false} tickFormatter={(val) => `${val}€`} />
+                                <Tooltip content={<BeneficiosTooltip />} />
+                                <Legend iconType="circle" />
+                                <Bar name="Ingresos" dataKey="ingresos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                <Bar name="Gastos" dataKey="gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                <Line
+                                    name="Beneficio"
+                                    type="monotone"
+                                    dataKey="diferencia"
+                                    stroke="#4f46e5"
+                                    strokeWidth={3}
+                                    dot={{ fill: '#4f46e5', strokeWidth: 2, r: 4 }}
+                                    activeDot={{ r: 6 }}
+                                />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+
 
             </div>
         </div>

@@ -36,6 +36,11 @@ export default function EntityForm({
       val = val ? "FACTURADO" : "NO FACTURADO";
     }
 
+    // Default Total Pagado to 0 for new gastos
+    if (isNew && field === "totalPagado" && (val === "" || val === null || val === undefined)) {
+      val = 0;
+    }
+
     initial[field] = val;
   });
 
@@ -190,7 +195,7 @@ export default function EntityForm({
 
   // Group columns by row if specified
   const rowsMap = {};
-  columns.forEach(col => {
+  columns.filter(col => typeof col !== 'object' || !col.hideInForm).forEach(col => {
     const r = (typeof col === 'object' && col.row) ? col.row : 999;
     if (!rowsMap[r]) rowsMap[r] = [];
     rowsMap[r].push(col);

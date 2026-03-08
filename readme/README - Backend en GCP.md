@@ -275,6 +275,13 @@ Sustituir REGION, PROJECT_ID Y REPO_NAME por los valores adecuados. El nombre de
 gcloud run deploy appgabinete --image  europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabx:latest --platform managed --region europe-southwest1 --allow-unauthenticated --port 4000 --set-env-vars "DATABASE_URL=postgresql://postgres.wqpwgnxsfmovxvwarszt:JSkAggDvU6Y!uJ+@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
 ```
 
+CORRECCION A PROBAR: ELIMINADO LOS PARAMETROS NO NECESARIOS
+(en realidad solo se quita el PORT 4000   ¡INVESTIGAR ESTO!)
+```bash
+gcloud run deploy appgabinete --image  europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete:latest --platform managed --region europe-southwest1 --allow-unauthenticated --set-env-vars "DATABASE_URL=postgresql://postgres.wqpwgnxsfmovxvwarszt:JSkAggDvU6Y!uJ+@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
+```
+
+
 Para eliminar el deploy:
 ```bash
 gcloud run services delete NOMBRE_DEL_SERVICIO --region REGION
@@ -331,6 +338,14 @@ echo "MI_PASSWORD_SECRETA" | gcloud secrets versions add MI_PASSWORD_DB --data-f
 * MI_PASSWORD_SECRETA="postgresql://postgres.wqpwgnxsfmovxvwarszt:JSkAggDvU6Y!uJ+@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
 * MI_PASSWORD_DB=appgab-db-pwd
 
+Eliminar el secreto 
+```bash
+# Plantilla
+gcloud secrets delete NOMBRE_DEL_SECRETO --quiet
+
+# Comando
+gcloud secrets delete appgab-db-pwd --quiet
+```
 
 ### 2.4. Configurar Cloud Run para acceder al secreto
 
@@ -339,16 +354,14 @@ echo "MI_PASSWORD_SECRETA" | gcloud secrets versions add MI_PASSWORD_DB --data-f
 Por seguridad, Cloud Run no puede leer secretos por defecto. Debes darle permiso a la Cuenta de Servicio que usa tu Cloud Run (normalmente la Default Compute Service Account).
 
 ```bash
+# Plantilla
 gcloud projects add-iam-policy-binding TU_PROJECT_ID 
    --member="serviceAccount:$(gcloud projects describe TU_PROJECT_ID 
    --format='value(projectNumber)')-compute@developer.gserviceaccount.com" 
    --role="roles/secretmanager.secretAccessor"
 
-
-gcloud projects add-iam-policy-binding project-architecture-test1 
-   --member="serviceAccount:$(gcloud projects describe project-architecture-test1 
-   --format='value(projectNumber)')-compute@developer.gserviceaccount.com" 
-   --role="roles/secretmanager.secretAccessor"
+# Comando
+gcloud projects add-iam-policy-binding project-architecture-test1 --member="serviceAccount:$(gcloud projects describe project-architecture-test1 --format='value(projectNumber)')-compute@developer.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
 ```  
 
 Se puede hacer por consola, desde "Services Accounts"
@@ -361,13 +374,31 @@ NOTA: ES UNA MEJOR PRACTICA CREAR UNA CUENTA DE SERVICIO ESPECIFICA PARA LA APLI
 
 Montar la contraseña como una variable de entorno + Asignar como nombre de la variable de entorno el que se utilice en el contenedor + Seleccionar el secreto y la version
 
-2.4.2.2. o con el comando
+2.4.2.2. o por comando
+
+Para desplegar el servicio en Cloud Run (desde Artifact Registry), asignando el valor del secret a la variable adecuada
 
 ```bash
-gcloud run deploy mi-servicio \
-    --image gcr.io/TU_PROJECT_ID/mi-imagen \
-    --set-secrets="/path/to/my/secret=mi-secreto-db-password:latest" \
-    --region europe-southwest1
+# Plantilla
+gcloud run deploy nombre-servicio \
+  --image RUTA_DE_LA_IMAGEN_EN_ARTIFACT_REGISTRY \
+  --platform managed \
+  --region REGION \
+  --allow-unauthenticated
+  --set-secrets="API_KEY=MI_SECRET_NAME:1"
+
+# Comando  
+gcloud run deploy appgabinete --image  europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete:latest --platform managed --region europe-southwest1 --allow-unauthenticated --set-secrets="DATABASE_URL=appgab-db-pwd:latest"
+```
+
+Si el servicio está ya desplegado en Cloud Run pero no arrancado o sin secret, se arranca (asignandole el secret)
+```bash
+# Plantilla
+gcloud run services update NOMBRE_DE_TU_SERVICIO \
+  --set-secrets="DB_PASS=MI_PASSWORD_DB:latest" \
+  --region REGION
+# Comando
+gcloud run services update appgabinete --set-secrets="DATABASE_URL=appgab-db-pwd:latest" --region europe-southwest1 
 ```
 
 
@@ -448,13 +479,48 @@ PREGUNTA AL DESPLEGAR SI SE QUIERE UNAUTHENTICATED MODE O NO: RESPONDER NO  -- �
 
  . Securizar el contenedor (no publico)  -- DONE!!!
  
+## TAREA 5: CREAR TODO
 
- ## TAREA 5: ELIMINAR TODO
+```bash
+# 1. Autenticarse en el powershell
+
+gcloud auth login
+
+# 2. Crear Repositorio
+gcloud artifacts repositories create appgab --repository-format=docker --location=europe-southwest1 --description="Docker images for AppGabinete"
+
+# 3. Autenticar el docker local
+ gcloud auth configure-docker europe-southwest1-docker.pkg.dev
+ 
+#4. Construir la imagen localmente
+ docker build -t europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete:latest .  
+
+#5. Subir la imagen a artifact registry
+docker push europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete:latest
+
+#6. Crear el secreto y añadir la contraseña
+  gcloud secrets create appgab-db-pwd --replication-policy="automatic"
+
+  echo "postgresql://postgres.wqpwgnxsfmovxvwarszt:JSkAggDvU6Y!uJ+@aws-1-eu-west-1.pooler.supabase.com:6543/postgres" | gcloud secrets versions add appgab-db-pwd --data-file=-
+
+#7. Dar permisos a la cuenta del servicio para acceder al secreto
+gcloud projects add-iam-policy-binding project-architecture-test1 --member="serviceAccount:$(gcloud projects describe project-architecture-test1 --format='value(projectNumber)')-compute@developer.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
+
+#8. Desplegar con acceso al Secret Manager
+gcloud run deploy appgabinete --image  europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete:latest --platform managed --region europe-southwest1 --allow-unauthenticated --set-secrets="DATABASE_URL=appgab-db-pwd:latest"
+
+
+#Probar 
+https://appgabinete-32604191455.europe-southwest1.run.app/docs
+```
+
+
+## TAREA 6: ELIMINAR TODO
 
 1. Eliminar el servicio (el deploy): 
 ```bash
 #eliminar servicio   
-gcloud run services delete NOMBRE_DEL_SERVICIO --region REGION
+gcloud run services delete appgabinete --region europe-southwest1
 
 #listar servicios
 gcloud run services list  #todos
@@ -462,25 +528,31 @@ gcloud run services list --filter="SERVICE:nombre-de-tu-servicio" #por nombre
 ```
 2. Eliminar la imagen en Artifact Registry: 
 ```bash
-gcloud artifacts docker images delete REGION-docker.pkg.dev/PROYECTO/REPO/IMAGEN --delete-tags
+gcloud artifacts docker images delete europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete --delete-tags
 
 #listar imagenes de un repositorio
-gcloud artifacts docker images list REGION-docker.pkg.dev/ID_PROYECTO/NOMBRE_REPOSITORIO #todas las imagenes del repositorio
-gcloud artifacts docker images list REGION-docker.pkg.dev/ID_PROYECTO/NOMBRE_REPOSITORIO/NOMBRE_IMAGEN --include-tags #todas las versiones de una image
+gcloud artifacts docker images list REGION-docker.pkg.dev/project-architecture-test1/appgab-db-pwd #todas las imagenes del repositorio
+gcloud artifacts docker images list REGION-docker.pkg.dev/project-architecture-test1/appgab-db-pwd/NOMBRE_IMAGEN --include-tags #todas las versiones de una image
 ```
 3. Eliminar un repositorio de Artifact Registry (si se elimina el repo, se eliminan las imagenes que contiene)
 ```bash
 #eliminar repositorio
-gcloud artifacts repositories delete REPO_NAME --location=REGION
+gcloud artifacts repositories delete appgab --location=europe-southwest1
 
 #listar repositorios
 gcloud artifacts repositories list
 ```
-4. Eliminar la imagen en el docker local: 
+4. Eliminar el secreto de Secret Manager
 ```bash
-docker rmi nombre_de_tu_imagen:tag
+#eliminar secreto
+gcloud secrets delete appgab-db-pwd --quiet
 ```
-5. Logout: 
+
+5. Eliminar la imagen en el docker local: 
+```bash
+docker rmi europe-southwest1-docker.pkg.dev/project-architecture-test1/appgab/appgabinete
+```
+6. Logout: 
 ```bash
 gcloud auth revoke
 ```

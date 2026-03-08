@@ -80,24 +80,11 @@
                 - SESIONES VS FACTURADO POR MES O TRIMESTRE  -- DONE!!!!
 
 
-- GASTOS
-        
-       * NUMERO
-        NUMERO FACTURA
-       * FEcha fechaEmision
-       * CONTACTO
-       * CONCEPTO
-       * Base 
-        Cantidad
-        Dto%
-        IVA%
-       * Fecha Pago 
-        PAGADO
-
-        Total = BASE + IVA - DTO
-        Pagado = S/N (Total - Pagado ==0)        
+- GASTOS -- DONE!!!!
+                     
 
 
-- REVISAR EL TOTAL DE GASTOS (DINAMICO O ESTATICO) Y TOTAL PENDIENTE
-- FILTRO DE PAGADO EN LA LISTA DE GASTOS 
-- GRAFICO DE INGRESOS - GASTOS
+- REVISAR EL TOTAL DE GASTOS (DINAMICO O ESTATICO) Y TOTAL PENDIENTE -- DONE!!!!
+- FILTRO DE PAGADO EN LA LISTA DE GASTOS  -- DONE!!!!
+- GRAFICO DE INGRESOS - GASTOS  -- DONE!!!!
+- GRAFICO DE BENEFICIOS POR MES O TRIMESTRE  -- DONE!!!!
