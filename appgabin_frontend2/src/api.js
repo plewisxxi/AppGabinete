@@ -1,6 +1,6 @@
 const API = {
-  //base: "http://localhost:4000/api",
-  base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
+  base: "http://localhost:4000/api",
+  // base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
 
   // ahora acepta params: { page, page_size, sort, order, q, filters: { campo: valor } }
   async fetchList(endpoint, page = 1, page_size = 50, params = {}) {

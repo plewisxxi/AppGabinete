@@ -1,10 +1,21 @@
 import React, { useState } from "react";
+import { AuthProvider, useAuth } from "./AuthContext";
 import EntityList from "./components/EntityList";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
+import Login from "./components/Login";
 
-export default function App() {
-  const [entity, setEntity] = useState("dashboard"); // Default to dashboard
+function AppContent() {
+  const { user, loading } = useAuth();
+  const [entity, setEntity] = useState("dashboard");
+
+  if (loading) {
+    return <div className="loading">Cargando...</div>;
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <div className="app-layout">
@@ -22,5 +33,13 @@ export default function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

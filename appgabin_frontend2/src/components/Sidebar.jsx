@@ -1,7 +1,9 @@
 import React, { useState } from "react";
+import { useAuth } from "../AuthContext";
 
 export default function Sidebar({ current, onChange }) {
     const [collapsed, setCollapsed] = useState(false);
+    const { user, logout, idToken } = useAuth();
 
     const menuItems = [
         { id: "dashboard", label: "Métricas", icon: "📊" },
@@ -43,6 +45,18 @@ export default function Sidebar({ current, onChange }) {
             </nav>
 
             <div className="sidebar-footer">
+                {!collapsed && user && (
+                    <div className="user-info">
+                        <small>Hola, {user.displayName}</small>
+                        <button 
+                            onClick={logout} 
+                            className="logout-btn"
+                            title={idToken ? `[DEBUG] ID Token: ${idToken.substring(0, 50)}...` : "Cerrar Sesión"}
+                        >
+                            Cerrar Sesión
+                        </button>
+                    </div>
+                )}
                 {!collapsed && <small>© 2026</small>}
             </div>
         </div>
