@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func, asc, desc, or_
 from ..database import get_session
 from ..models import Contacto
+from app.auth import get_current_user
 
 router = APIRouter()
 
@@ -15,11 +16,12 @@ def list_contactos(request: Request,
                    sort: Optional[str] = None,
                    order: Optional[str] = "asc",
                    q: Optional[str] = None,
-                   session: Session = Depends(get_session)):
+                   session: Session = Depends(get_session),
+                   user_empresas: list[int] = Depends(get_current_user)):
     params: Dict[str, str] = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
-    stmt = select(Contacto)
+    stmt = select(Contacto).where(Contacto.empresa_id.in_(user_empresas))
 
     # apply field filters (filter_<field>=value)
     for field, value in filters.items():
@@ -79,19 +81,21 @@ def list_contactos(request: Request,
 
 
 @router.get("/{nif}", response_model=Contacto)
-def get_contacto(nif: str, session: Session = Depends(get_session)):
-    contacto = session.get(Contacto, nif)
+def get_contacto(nif: str, session: Session = Depends(get_session), user_empresas: list[int] = Depends(get_current_user)):
+    contacto = session.exec(select(Contacto).where(Contacto.NIF == nif, Contacto.empresa_id.in_(user_empresas))).first()
     if not contacto:
         raise HTTPException(status_code=404, detail="Contacto not found")
     return contacto
 
 
 @router.post("", response_model=Contacto, status_code=201)
-def create_contacto(payload: Contacto, session: Session = Depends(get_session)):
+def create_contacto(payload: Contacto, session: Session = Depends(get_session), user_empresas: list[int] = Depends(get_current_user)):
     # payload.NIF debe estar presente (pk)
     if getattr(payload, "NIF", None) is None:
         raise HTTPException(status_code=400, detail="nif is required")
-    existing = session.get(Contacto, payload.NIF)
+        
+    payload.empresa_id = user_empresas[0]
+    existing = session.exec(select(Contacto).where(Contacto.NIF == payload.NIF, Contacto.empresa_id.in_(user_empresas))).first()
     if existing:
         raise HTTPException(status_code=400, detail="Contacto with this nif already exists")
     session.add(payload)
@@ -101,8 +105,8 @@ def create_contacto(payload: Contacto, session: Session = Depends(get_session)):
 
 
 @router.put("/{nif}", response_model=Contacto)
-def update_contacto(nif: str, payload: Contacto, session: Session = Depends(get_session)):
-    contacto = session.get(Contacto, nif)
+def update_contacto(nif: str, payload: Contacto, session: Session = Depends(get_session), user_empresas: list[int] = Depends(get_current_user)):
+    contacto = session.exec(select(Contacto).where(Contacto.NIF == nif, Contacto.empresa_id.in_(user_empresas))).first()
     if not contacto:
         raise HTTPException(status_code=404, detail="Contacto not found")
     # Actualizar campos permitidos (ignorar primary key)
@@ -117,8 +121,8 @@ def update_contacto(nif: str, payload: Contacto, session: Session = Depends(get_
 
 
 @router.delete("/{nif}")
-def delete_contacto(nif: str, session: Session = Depends(get_session)):
-    contacto = session.get(Contacto, nif)
+def delete_contacto(nif: str, session: Session = Depends(get_session), user_empresas: list[int] = Depends(get_current_user)):
+    contacto = session.exec(select(Contacto).where(Contacto.NIF == nif, Contacto.empresa_id.in_(user_empresas))).first()
     if not contacto:
         raise HTTPException(status_code=404, detail="Contacto not found")
     session.delete(contacto)
@@ -127,7 +131,7 @@ def delete_contacto(nif: str, session: Session = Depends(get_session)):
 
 
 @router.post("/bulk")
-def bulk_contactos(payload: dict = Body(...), session: Session = Depends(get_session)):
+def bulk_contactos(payload: dict = Body(...), session: Session = Depends(get_session), user_empresas: list[int] = Depends(get_current_user)):
     """
     payload example:
     { "nifs": ["X123", "Y456"], "action": "delete" }
@@ -138,7 +142,7 @@ def bulk_contactos(payload: dict = Body(...), session: Session = Depends(get_ses
         raise HTTPException(status_code=400, detail="nifs required")
 
     if action == "delete":
-        stmt = select(Contacto).where(getattr(Contacto, "NIF").in_(nifs))
+        stmt = select(Contacto).where(getattr(Contacto, "NIF").in_(nifs), Contacto.empresa_id.in_(user_empresas))
         objs = session.exec(stmt).all()
         count = 0
         for o in objs:

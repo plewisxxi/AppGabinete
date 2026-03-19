@@ -625,6 +625,12 @@ select {
   border-bottom: 1px solid var(--border);
 }
 
+.header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .sidebar-header h2 {
   font-size: 18px;
   font-weight: 700;
@@ -634,6 +640,14 @@ select {
   background-clip: text;
   color: transparent;
   white-space: nowrap;
+}
+
+.sidebar-header .company-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 2px;
+  display: block;
 }
 
 .toggle-btn {
@@ -741,6 +755,8 @@ select {
   .sidebar {
     width: 100%;
     height: auto;
+    max-height: 100vh;
+    overflow-y: auto;
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
@@ -760,10 +776,31 @@ select {
     padding: 8px 12px;
   }
 
-  .sidebar-footer,
   .sidebar-header h2 {
     display: none;
     /* Simplify for mobile */
+  }
+
+  /* Hide footer on mobile (show logout in nav instead) */
+  .sidebar-footer {
+    display: none;
+  }
+
+  .sidebar-footer small {
+    display: none;
+  }
+
+  /* Style the logout nav item to look like a danger action */
+  .nav-item.logout {
+    color: var(--danger);
+  }
+
+  .nav-item.logout .icon {
+    color: var(--danger);
+  }
+
+  .nav-item.logout:hover {
+    background: rgba(239, 68, 68, 0.08);
   }
 
   .main-content {

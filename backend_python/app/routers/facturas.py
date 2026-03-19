@@ -3,9 +3,10 @@ from decimal import Decimal
 from datetime import datetime, date
 from fastapi import APIRouter, HTTPException, Body, Query, Depends, Request
 from sqlmodel import Session, select
-from sqlalchemy import func, asc, desc, or_, cast, Integer, BigInteger, String
+from sqlalchemy import func, asc, desc, or_, and_, cast, Integer, BigInteger, String
 from app.database import engine, get_session
 from app import models
+from app.auth import get_current_user
 
 Factura = models.Factura
 Contacto = models.Contacto
@@ -89,33 +90,34 @@ def list_facturas(
     start_date: Optional[str] = Query(None, description="Fecha inicio en formato DD-MM-YYYY"),
     end_date: Optional[str] = Query(None, description="Fecha fin en formato DD-MM-YYYY"),
     session: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user),
 ):
     params = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
-    # 1. Base query to identify filtered invoice IDs
-    ids_stmt = select(Factura.numeroFactura)
+    # Base where condition
+    base_where = Factura.empresa_id.in_(user_empresas)
 
     # Date range filters
     if start_date:
         start_date_obj = parse_date_from_display(start_date)
-        ids_stmt = ids_stmt.where(Factura.fechaEmision >= start_date_obj)
+        base_where = and_(base_where, Factura.fechaEmision >= start_date_obj)
     if end_date:
         end_date_obj = parse_date_from_display(end_date)
-        ids_stmt = ids_stmt.where(Factura.fechaEmision <= end_date_obj)
+        base_where = and_(base_where, Factura.fechaEmision <= end_date_obj)
 
     # field filters
     for field, value in filters.items():
         if field == "nombreContacto":
             # Search by contact name
             contact_nifs = select(Contacto.NIF).where(func.unaccent(Contacto.Nombre).ilike(func.unaccent(f"%{value}%")))
-            ids_stmt = ids_stmt.where(Factura.NIFCliente.in_(contact_nifs))
+            base_where = and_(base_where, Factura.NIFCliente.in_(contact_nifs))
         elif hasattr(Factura, field):
             col = getattr(Factura, field)
             try:
-                ids_stmt = ids_stmt.where(func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
+                base_where = and_(base_where, func.unaccent(cast(col, String)).ilike(func.unaccent(f"%{value}%")))
             except Exception:
-                ids_stmt = ids_stmt.where(col == value)
+                base_where = and_(base_where, col == value)
                 
     # global q search
     if q:
@@ -129,21 +131,16 @@ def list_facturas(
                 ors.append(func.unaccent(cast(getattr(Factura, col.name), String)).ilike(func.unaccent(f"%{q}%")))
             except: continue
         if ors:
-            ids_stmt = ids_stmt.where(or_(*ors))
-
-    # Convert to subquery for use in counts and aggregates
-    filtered_ids = ids_stmt.subquery()
+            base_where = and_(base_where, or_(*ors))
 
     # 2. TOTAL COUNT (filtered)
-    total = session.exec(select(func.count()).select_from(filtered_ids)).one()
+    total = session.exec(select(func.count(Factura.numeroFactura)).where(base_where)).one()
 
     # 3. ACCURATE AGGREGATES (filtered)
-    agg_stmt = select(
+    aggs = session.exec(select(
         func.coalesce(func.sum(Factura.base), 0),
         func.coalesce(func.sum(Factura.total), 0)
-    ).where(Factura.numeroFactura.in_(select(filtered_ids.c.numeroFactura)))
-    
-    aggs = session.exec(agg_stmt).one()
+    ).where(base_where)).one()
     aggregates = {
         "base": float(aggs[0]),
         "total": float(aggs[1])
@@ -153,7 +150,7 @@ def list_facturas(
     stmt = (
         select(Factura, Contacto.Nombre)
         .outerjoin(Contacto, Factura.NIFCliente == Contacto.NIF)
-        .where(Factura.numeroFactura.in_(select(filtered_ids.c.numeroFactura)))
+        .where(base_where)
     )
 
     if sort == "numeroFactura":
@@ -181,8 +178,8 @@ def list_facturas(
 
 
 @router.get("/{numeroFactura}")
-def get_factura(numeroFactura: str, session: Session = Depends(get_session)):
-    stmt = select(Factura, Contacto.Nombre).outerjoin(Contacto, Factura.NIFCliente == Contacto.NIF).where(Factura.numeroFactura == numeroFactura)
+def get_factura(numeroFactura: str, session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
+    stmt = select(Factura, Contacto.Nombre).outerjoin(Contacto, Factura.NIFCliente == Contacto.NIF).where(Factura.numeroFactura == numeroFactura, Factura.empresa_id.in_(user_empresas))
     result = session.exec(stmt).first()
     if not result:
         raise HTTPException(status_code=404, detail="Factura not found")
@@ -190,13 +187,15 @@ def get_factura(numeroFactura: str, session: Session = Depends(get_session)):
 
 
 @router.post("", status_code=201)
-def create_factura(payload: Dict[str, Any] = Body(...)):
+def create_factura(payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
         # Convert date fields from DD-MM-YYYY to date objects
         if "fechaEmision" in payload and payload["fechaEmision"]:
             payload["fechaEmision"] = parse_date_from_display(payload["fechaEmision"])
         if "fechaPago" in payload and payload["fechaPago"]:
             payload["fechaPago"] = parse_date_from_display(payload["fechaPago"])
+            
+        payload["empresa_id"] = user_empresas[0]
         
         factura = Factura(**payload)
         s.add(factura)
@@ -206,10 +205,10 @@ def create_factura(payload: Dict[str, Any] = Body(...)):
 
 
 @router.put("/{numero}")
-def update_factura(numero: str, payload: Dict[str, Any] = Body(...)):
+def update_factura(numero: str, payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     items = payload.get("items", None)
     with Session(engine) as s:
-        factura = s.get(Factura, numero)
+        factura = s.exec(select(Factura).where(Factura.numeroFactura == numero, Factura.empresa_id.in_(user_empresas))).first()
         if not factura:
             raise HTTPException(status_code=404, detail="Factura not found")
 
@@ -246,9 +245,9 @@ def update_factura(numero: str, payload: Dict[str, Any] = Body(...)):
 
 
 @router.delete("/{numero}")
-def delete_factura(numero: str):
+def delete_factura(numero: str, user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        obj = s.get(Factura, numero)
+        obj = s.exec(select(Factura).where(Factura.numeroFactura == numero, Factura.empresa_id.in_(user_empresas))).first()
         if not obj:
             raise HTTPException(status_code=404, detail="Factura not found")
         s.delete(obj)
@@ -257,7 +256,7 @@ def delete_factura(numero: str):
 
 
 @router.get("/reports/summary-by-period")
-def report_summary_by_period():
+def report_summary_by_period(user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
         # detect column keys dynamically
         periodo_pk = list(Periodo.__table__.primary_key)[0].key
@@ -272,6 +271,7 @@ def report_summary_by_period():
                 func.coalesce(func.sum(Factura.total), 0).label("total_facturado"),
             )
             .outerjoin(Factura, factura_periodo_col == periodo_col)
+            .where(Factura.empresa_id.in_(user_empresas))
             .group_by(periodo_col, Periodo.__table__.c.get("descPeriodo"))
         )
         rows = s.exec(stmt).all()
@@ -287,7 +287,7 @@ def report_summary_by_period():
 
 
 @router.get("/reports/summary-by-contact")
-def report_summary_by_contact():
+def report_summary_by_contact(user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
         stmt = (
             select(
@@ -297,6 +297,7 @@ def report_summary_by_contact():
                 func.coalesce(func.sum(Factura.total), 0).label("total_facturado"),
             )
             .outerjoin(Factura, Factura.NIFCliente == Contacto.NIF)
+            .where(Factura.empresa_id.in_(user_empresas))
             .group_by(Contacto.NIF, Contacto.Nombre)
             .order_by(Contacto.Nombre)
         )

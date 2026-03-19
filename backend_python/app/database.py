@@ -36,7 +36,20 @@ def init_db() -> None:
         conn.commit()
     
     SQLModel.metadata.create_all(bind=engine)
-    
+
+    # Ensure the global unique constraint on factura.numeroFactura is removed
+    # so that invoice numbers can be reused across different empresas.
+    # The PK is already (numeroFactura, empresa_id) in our model.
+    if not DATABASE_URL.startswith("sqlite"):
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            try:
+                conn.execute(text('ALTER TABLE factura DROP CONSTRAINT IF EXISTS "Facturas_Número_key"'))
+                conn.commit()
+            except Exception:
+                # ignore failures (e.g., constraint not found)
+                pass
+
     # Seed Metadatos
     from app.models import Metadatos
     from sqlmodel import select

@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func, asc, desc, or_, cast, String
 from app.database import engine, get_session
 from app import models
+from app.auth import get_current_user
 
 Gasto = models.Gasto
 
@@ -63,12 +64,13 @@ def list_gastos(
     end_date: Optional[str] = Query(None, description="Fecha fin en formato DD-MM-YYYY"),
     pagado: Optional[str] = Query(None, description="Filter: 'true' (Pagados), 'false' (No pagados)"),
     session: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user),
 ):
     params = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
     # 1. Base query to identify filtered Gasto IDs (avoids duplicates in aggregates)
-    ids_stmt = select(Gasto.id)
+    ids_stmt = select(Gasto.id).where(Gasto.empresa_id.in_(user_empresas))
 
     # Date range filters on fechaEmision
     if start_date:
@@ -153,15 +155,15 @@ def list_gastos(
     return {"data": serialized_items, "total": total_count, "aggregates": aggregates}
 
 @router.get("/{id}")
-def get_gasto(id: int, session: Session = Depends(get_session)):
-    gasto = session.get(Gasto, id)
+def get_gasto(id: int, session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
+    gasto = session.exec(select(Gasto).where(Gasto.id == id, Gasto.empresa_id.in_(user_empresas))).first()
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto not found")
     return serialize_gasto(gasto)
 
 
 @router.post("/clone")
-def clone_gastos(payload: Dict[str, Any] = Body(...)):
+def clone_gastos(payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     """
     Clone selected gastos to a new period/month.
     Payload: { "ids": [1, 2, ...], "target_period_id": "2025-01ENERO" }
@@ -210,7 +212,7 @@ def clone_gastos(payload: Dict[str, Any] = Body(...)):
             skipped_count = 0
 
             for gid in ids:
-                source = s.get(Gasto, gid)
+                source = s.exec(select(Gasto).where(Gasto.id == gid, Gasto.empresa_id.in_(user_empresas))).first()
                 if not source:
                     continue
                 
@@ -232,7 +234,8 @@ def clone_gastos(payload: Dict[str, Any] = Body(...)):
                     numeroFactura=None,
                     fechaPago=None,
                     totalPagado=0,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.utcnow(),
+                    empresa_id=user_empresas[0]
                 )
                 s.add(new_gasto)
                 created_count += 1
@@ -250,7 +253,7 @@ def clone_gastos(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("", status_code=201)
-def create_gasto(payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session)):
+def create_gasto(payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
     # Convert dates
     if "fechaEmision" in payload and payload["fechaEmision"]:
         payload["fechaEmision"] = parse_date_from_display(payload["fechaEmision"])
@@ -264,6 +267,7 @@ def create_gasto(payload: Dict[str, Any] = Body(...), session: Session = Depends
     if not payload.get("created_at"):
         payload["created_at"] = datetime.utcnow()
 
+    payload["empresa_id"] = user_empresas[0]
 
     gasto = Gasto(**payload)
     session.add(gasto)
@@ -272,8 +276,8 @@ def create_gasto(payload: Dict[str, Any] = Body(...), session: Session = Depends
     return serialize_gasto(gasto)
 
 @router.put("/{id}")
-def update_gasto(id: int, payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session)):
-    gasto = session.get(Gasto, id)
+def update_gasto(id: int, payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
+    gasto = session.exec(select(Gasto).where(Gasto.id == id, Gasto.empresa_id.in_(user_empresas))).first()
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto not found")
     
@@ -294,8 +298,8 @@ def update_gasto(id: int, payload: Dict[str, Any] = Body(...), session: Session 
     return serialize_gasto(gasto)
 
 @router.delete("/{id}")
-def delete_gasto(id: int, session: Session = Depends(get_session)):
-    gasto = session.get(Gasto, id)
+def delete_gasto(id: int, session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
+    gasto = session.exec(select(Gasto).where(Gasto.id == id, Gasto.empresa_id.in_(user_empresas))).first()
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto not found")
     session.delete(gasto)
@@ -303,7 +307,7 @@ def delete_gasto(id: int, session: Session = Depends(get_session)):
     return {"ok": True}
 
 @router.post("/pay")
-def pay_gastos(payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session)):
+def pay_gastos(payload: Dict[str, Any] = Body(...), session: Session = Depends(get_session), user_empresas: List[int] = Depends(get_current_user)):
     """
     Mark selected gastos as paid.
     Payload: { "ids": [1, 2, ...] }
@@ -316,7 +320,7 @@ def pay_gastos(payload: Dict[str, Any] = Body(...), session: Session = Depends(g
     updated_count = 0
     
     for gid in ids:
-        gasto = session.get(Gasto, gid)
+        gasto = session.exec(select(Gasto).where(Gasto.id == gid, Gasto.empresa_id.in_(user_empresas))).first()
         if gasto:
             # A gasto is considered paid if Total = TotalPagado
             # Here we set totalPagado = total and fechaPago = today

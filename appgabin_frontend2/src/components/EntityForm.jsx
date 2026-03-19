@@ -343,7 +343,7 @@ export default function EntityForm({
                   <div key={k} className={`form-field ${isTextArea ? 'full-width' : ''}`} style={fieldStyle}>
                     <label>{label}</label>
                     {isTextArea ? (
-                      <textarea value={form[k] ?? ""} onChange={e => change(k, e.target.value)} rows={4} disabled={isDisabled} />
+                      <textarea value={form[k] ?? ""} onChange={e => change(k, e.target.value)} rows={2} disabled={isDisabled} />
                     ) : (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <input

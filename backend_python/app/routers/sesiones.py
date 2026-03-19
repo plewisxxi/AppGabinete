@@ -6,6 +6,7 @@ from sqlalchemy import and_
 from sqlalchemy import func, asc, desc, or_
 from app.database import engine, get_session
 from app import models
+from app.auth import get_current_user
 import logging
 
 # Configure logging to output DEBUG level messages to the console
@@ -76,13 +77,14 @@ def list_sesiones(
     start_date: Optional[str] = Query(None, description="Fecha inicio en formato DD-MM-YYYY"),
     end_date: Optional[str] = Query(None, description="Fecha fin en formato DD-MM-YYYY"),
     session: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user),
 ):
     params = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
     # 1. Base query to identify filtered session IDs
     # This avoids row multiplication in aggregate calculations
-    ids_stmt = select(Sesion.idSesion)
+    ids_stmt = select(Sesion.idSesion).where(Sesion.empresa_id.in_(user_empresas))
 
     # Date range filters
     if start_date:
@@ -163,9 +165,9 @@ def list_sesiones(
         Periodo.descPeriodo.label("descPeriodo"), 
         Producto.descProducto.label("descProducto")
     ).where(Sesion.idSesion.in_(select(filtered_ids.c.idSesion))) \
-     .join(Contacto, Sesion.NIFCliente == Contacto.NIF, isouter=True) \
-     .join(Periodo, Sesion.IDPeriodo == Periodo.IDPeriodo, isouter=True) \
-     .join(Producto, Sesion.IDProducto == Producto.IDProducto, isouter=True)
+     .join(Contacto, and_(Sesion.NIFCliente == Contacto.NIF, Sesion.empresa_id == Contacto.empresa_id), isouter=True) \
+     .join(Periodo, and_(Sesion.IDPeriodo == Periodo.IDPeriodo, Sesion.empresa_id == Periodo.empresa_id), isouter=True) \
+     .join(Producto, and_(Sesion.IDProducto == Producto.IDProducto, Sesion.empresa_id == Producto.empresa_id), isouter=True)
 
     # ordering
     if sort:
@@ -203,9 +205,9 @@ def list_sesiones(
 
 #@router.get("/{id}", response_model=Dict[str, Any])
 @router.get("/{id}")
-def get_sesion(id: int):
+def get_sesion(id: int, user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        ses = s.get(Sesion, id)
+        ses = s.exec(select(Sesion).where(Sesion.idSesion == id, Sesion.empresa_id.in_(user_empresas))).first()
         if not ses:
             raise HTTPException(status_code=404, detail="Sesion not found")
 
@@ -213,14 +215,23 @@ def get_sesion(id: int):
 
 
 @router.post("", status_code=201)
-def create_sesion(payload: Dict[str, Any] = Body(...)):
+def create_sesion(payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
         # Convert date fields from DD-MM-YYYY to date objects
         if "fechaOperacion" in payload and payload["fechaOperacion"]:
             payload["fechaOperacion"] = parse_date_from_display(payload["fechaOperacion"])
         if "fechaPago" in payload and payload["fechaPago"]:
             payload["fechaPago"] = parse_date_from_display(payload["fechaPago"])
-        
+
+        payload["empresa_id"] = user_empresas[0]
+
+        # Auto-fill base/total from product pricing when a product is selected
+        if "IDProducto" in payload and payload["IDProducto"]:
+            prod = s.get(Producto, payload["IDProducto"])
+            if prod and prod.base is not None:
+                payload["base"] = prod.base
+                payload["total"] = prod.base
+
         obj = Sesion(**payload)
         s.add(obj)
         s.commit()
@@ -229,9 +240,9 @@ def create_sesion(payload: Dict[str, Any] = Body(...)):
 
 
 @router.put("/{id}")
-def update_sesion(id: int, payload: Dict[str, Any] = Body(...)):
+def update_sesion(id: int, payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        srv = s.get(Sesion, id)
+        srv = s.exec(select(Sesion).where(Sesion.idSesion == id, Sesion.empresa_id.in_(user_empresas))).first()
         if not srv:
             raise HTTPException(status_code=404, detail="Sesion not found")
         for k, v in payload.items():
@@ -257,9 +268,9 @@ def update_sesion(id: int, payload: Dict[str, Any] = Body(...)):
 
 
 @router.delete("/{id}")
-def delete_sesion(id: int):
+def delete_sesion(id: int, user_empresas: List[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        srv = s.get(Sesion, id)
+        srv = s.exec(select(Sesion).where(Sesion.idSesion == id, Sesion.empresa_id.in_(user_empresas))).first()
         if not srv:
             raise HTTPException(status_code=404, detail="Sesion not found")
         s.delete(srv)
@@ -267,7 +278,10 @@ def delete_sesion(id: int):
         return {"deleted": True}
 
 @router.get("/reports/summary-by-period")
-def report_summary_by_period(year:str | None=Query(None, description="Año para filtrar las sesiones (yyyy),si se omite se incluyen todas")):
+def report_summary_by_period(
+    year: str | None = Query(None, description="Año para filtrar las sesiones (yyyy),si se omite se incluyen todas"),
+    user_empresas: List[int] = Depends(get_current_user)
+):
     with Session(engine) as s:
         stmt = (
             select(
@@ -276,7 +290,7 @@ def report_summary_by_period(year:str | None=Query(None, description="Año para 
                 func.count(Sesion.idSesion).label("numero_sesiones"),
                 func.coalesce(func.sum(Sesion.total), 0).label("total_sesiones"),
             )
-            .outerjoin(Sesion, Sesion.IDPeriodo == Periodo.IDPeriodo)
+            .outerjoin(Sesion, and_(Sesion.IDPeriodo == Periodo.IDPeriodo, Sesion.empresa_id.in_(user_empresas)))
             .group_by(Periodo.IDPeriodo, Periodo.descPeriodo)
             .order_by(Periodo.IDPeriodo)
         )
@@ -301,7 +315,7 @@ def report_summary_by_period(year:str | None=Query(None, description="Año para 
 
 
 @router.post("/clone")
-def clone_sesiones(payload: Dict[str, Any] = Body(...)):
+def clone_sesiones(payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     """
     Clone selected sessions to a new period.
     Payload: { "ids": [1, 2, ...], "target_period_id": "2025Q1" }
@@ -340,7 +354,7 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...)):
         skipped_count = 0
 
         for sid in ids:
-            source = s.get(Sesion, sid)
+            source = s.exec(select(Sesion).where(Sesion.idSesion == sid, Sesion.empresa_id.in_(user_empresas))).first()
             if not source:
                 continue
 
@@ -348,7 +362,8 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...)):
             stmt = select(Sesion).where(
                 Sesion.NIFCliente == source.NIFCliente,
                 Sesion.IDProducto == source.IDProducto,
-                Sesion.IDPeriodo == target_period_id
+                Sesion.IDPeriodo == target_period_id,
+                Sesion.empresa_id.in_(user_empresas)
             )
             existing = s.exec(stmt).first()
 
@@ -376,7 +391,8 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...)):
                 IDProducto=source.IDProducto,
                 facturado=False,
                 fechaPago=None,
-                totalPagado=0
+                totalPagado=0,
+                empresa_id=user_empresas[0]
             )
             s.add(new_sesion)
             created_count += 1
@@ -387,7 +403,7 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...)):
 
 
 @router.post("/facturar")
-def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...)):
+def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     """
     Generate invoices for selected sessions.
     Payload: [ { "idSesion": 1, "totalAFacturar": 100.00 }, ... ]
@@ -402,56 +418,86 @@ def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...)):
     from app.models import Metadatos
 
     with Session(engine) as s:
-        # 1. Lock Metadatos and get current values (single row expected)
-        # using with_for_update() on Postgres
-        stmt = select(Metadatos).with_for_update()
-        meta = s.exec(stmt).first()
-        
-        if not meta:
-            # Should be seeded, but handle just in case
-            meta = Metadatos(serie="F", ultimoNumeroFactura=0)
-            s.add(meta)
-            # Need to commit to get ID if needed, or just proceed attached
-            # It's better to flush to ensure it exists for subsequent ops
-            s.flush()
-            s.refresh(meta)
-        
-        current_num = meta.ultimoNumeroFactura
-        serie_val = meta.serie or "F"
-        
+        # Cache metadata and number counters per empresa
+        per_empresa: Dict[int, Dict[str, Any]] = {}
+
+        def ensure_meta_for_empresa(empresa_id: int):
+            if empresa_id in per_empresa:
+                return per_empresa[empresa_id]
+
+            # Lock metadata row for this empresa to avoid race conditions on the counter
+            stmt = select(Metadatos).where(Metadatos.empresa_id == empresa_id).with_for_update()
+            meta = s.exec(stmt).first()
+            if not meta:
+                meta = Metadatos(serie="F", ultimoNumeroFactura=0, empresa_id=empresa_id)
+                s.add(meta)
+                s.flush()
+                s.refresh(meta)
+
+            serie_val = (meta.serie or "F").strip()
+
+            # Ensure counter is at least as high as any existing factura for this empresa+serie
+            from sqlalchemy import cast, BigInteger, func
+
+            num_part = func.split_part(Factura.numeroFactura, "-", 2)
+            numeric = func.nullif(func.regexp_replace(num_part, "[^0-9]", "", "g"), "")
+            num_int = cast(numeric, BigInteger)
+            max_stmt = select(func.max(num_int)).where(
+                Factura.numeroFactura.like(f"{serie_val}-%"),
+                Factura.empresa_id == empresa_id,
+            )
+            max_existing = s.exec(max_stmt).one() or 0
+
+            current_num = max(meta.ultimoNumeroFactura, int(max_existing))
+
+            per_empresa[empresa_id] = {
+                "meta": meta,
+                "serie": serie_val,
+                "current_num": current_num,
+            }
+            return per_empresa[empresa_id]
+
         for item in payload:
             id_sesion = item.get("idSesion")
             total_facturar = item.get("totalAFacturar")
-            
+
             if not id_sesion:
                 continue
-                
-            sesion = s.get(Sesion, id_sesion)
+
+            sesion = s.exec(
+                select(Sesion).where(
+                    Sesion.idSesion == id_sesion,
+                    Sesion.empresa_id.in_(user_empresas),
+                )
+            ).first()
             if not sesion:
                 continue
-            
-            # 2.1 Check if already invoiced (duplicate check in Factura)
+
+            empresa_id = sesion.empresa_id
+            meta_entry = ensure_meta_for_empresa(empresa_id)
+
+            # 2.1 Check if already invoiced (duplicate check in Factura) for this empresa
             stmt = select(Factura).where(
                 Factura.NIFCliente == sesion.NIFCliente,
                 Factura.IDPeriodo == sesion.IDPeriodo,
-                Factura.IDProducto == sesion.IDProducto
+                Factura.IDProducto == sesion.IDProducto,
+                Factura.empresa_id == empresa_id,
             )
             existing = s.exec(stmt).first()
-            
             if existing:
                 skipped_count += 1
                 continue
-            
-            # 2.2 Calculate Next Invoice Number
-            current_num += 1
-            num_factura = f"{serie_val}-{current_num}"
-            
+
+            # 2.2 Calculate Next Invoice Number (per empresa)
+            meta_entry["current_num"] += 1
+            num_factura = f"{meta_entry['serie']}-{meta_entry['current_num']}"
+
             # 2.3 Calculate Trimestre from Today
             today = date.today()
             # Q1=1-3, Q2=4-6, Q3=7-9, Q4=10-12
             quarter = (today.month - 1) // 3 + 1
             trimestre_str = f"{today.year}/T{quarter}"
-            
+
             new_factura = Factura(
                 numeroFactura=num_factura,
                 fechaEmision=today,
@@ -465,23 +511,25 @@ def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...)):
                 total=total_facturar,
                 metodoPago="No definido",
                 IDPeriodo=sesion.IDPeriodo,
-                trimestre=trimestre_str
+                trimestre=trimestre_str,
+                empresa_id=empresa_id,
             )
             s.add(new_factura)
-            
+
             # 2.5 Update Sesion
             sesion.facturado = True
             sesion.totalPagado = total_facturar
             sesion.fechaPago = today
             # Link sesion to invoice
             sesion.numeroFactura = num_factura
-            
+
             s.add(sesion)
             created_count += 1
-        
-        # Update Metadata with final number
-        meta.ultimoNumeroFactura = current_num
-        s.add(meta)
+
+        # Update Metadata records with final counters
+        for info in per_empresa.values():
+            info["meta"].ultimoNumeroFactura = info["current_num"]
+            s.add(info["meta"])
         
         s.commit()
         

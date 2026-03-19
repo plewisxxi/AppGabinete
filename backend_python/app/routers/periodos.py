@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func, asc, desc, or_
 from app.database import engine, get_session
 from app.models import Periodo
+from app.auth import get_current_user
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -19,26 +20,27 @@ def get_pk_key(model):
 PK = get_pk_key(Periodo)
 
 @router.get("/", response_model=List[Periodo])
-def list_periodos(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1)):
+def list_periodos(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1), user_empresas: list[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        stmt = select(Periodo).offset((page - 1) * page_size).limit(page_size)
+        stmt = select(Periodo).where(Periodo.empresa_id.in_(user_empresas)).offset((page - 1) * page_size).limit(page_size)
         return s.exec(stmt).all()
 
 @router.get("/{idperiodo}", response_model=Periodo)
-def get_periodo(idperiodo: str):
+def get_periodo(idperiodo: str, user_empresas: list[int] = Depends(get_current_user)):
     logging.debug(idperiodo)
     with Session(engine) as s:
-        obj = s.get(Periodo, idperiodo)
+        obj = s.exec(select(Periodo).where(Periodo.IDPeriodo == idperiodo, Periodo.empresa_id.in_(user_empresas))).first()
         if not obj:
             raise HTTPException(status_code=404, detail="Periodo not found")
         return obj
 
 @router.post("", response_model=Periodo, status_code=201)
-def create_periodo(payload: Periodo):
+def create_periodo(payload: Periodo, user_empresas: list[int] = Depends(get_current_user)):
    with Session(engine) as s:
         if payload.IDPeriodo is None:
             raise HTTPException(status_code=400, detail="idperiodo is required")
-        existing = s.get(Periodo, payload.IDPeriodo)
+        payload.empresa_id = user_empresas[0]
+        existing = s.exec(select(Periodo).where(Periodo.IDPeriodo == payload.IDPeriodo, Periodo.empresa_id.in_(user_empresas))).first()
         if existing:
             raise HTTPException(status_code=400, detail="Periodo with this idperiodo already exists")
         s.add(payload)
@@ -47,9 +49,9 @@ def create_periodo(payload: Periodo):
         return payload
 
 @router.put("/{idperiodo}", response_model=Periodo)
-def update_producto(idperiodo: str, payload: Periodo):
+def update_periodo(idperiodo: str, payload: Periodo, user_empresas: list[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        p = s.get(Periodo, idperiodo)
+        p = s.exec(select(Periodo).where(Periodo.IDPeriodo == idperiodo, Periodo.empresa_id.in_(user_empresas))).first()
         if not p:
             raise HTTPException(status_code=404, detail="Periodo not found")
         for k, v in payload.dict(exclude_unset=True).items():
@@ -62,9 +64,9 @@ def update_producto(idperiodo: str, payload: Periodo):
         return p
 
 @router.delete("/{idperiodo}")
-def delete_periodo(idperiodo: str):
+def delete_periodo(idperiodo: str, user_empresas: list[int] = Depends(get_current_user)):
     with Session(engine) as s:
-        item = s.get(Periodo, idperiodo)
+        item = s.exec(select(Periodo).where(Periodo.IDPeriodo == idperiodo, Periodo.empresa_id.in_(user_empresas))).first()
         if not item:
             raise HTTPException(status_code=404, detail="Periodo not found")
         s.delete(item)
@@ -72,17 +74,18 @@ def delete_periodo(idperiodo: str):
         return {"deleted": True}
 
 @router.get("")
-def list_periodos(request: Request,
+def list_periodos_filtered(request: Request,
                   page: int = 1,
                   page_size: int = 50,
                   sort: Optional[str] = None,
                   order: Optional[str] = "asc",
                   q: Optional[str] = None,
-                  session: Session = Depends(get_session)):
+                  session: Session = Depends(get_session),
+                  user_empresas: list[int] = Depends(get_current_user)):
     params = dict(request.query_params)
     filters = {k[7:]: v for k, v in params.items() if k.startswith("filter_")}
 
-    stmt = select(Periodo)
+    stmt = select(Periodo).where(Periodo.empresa_id.in_(user_empresas))
 
     for field, value in filters.items():
         if hasattr(Periodo, field):

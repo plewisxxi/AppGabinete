@@ -4,6 +4,8 @@ from sqlmodel import Session, select, func, or_
 from app.database import get_session
 from app import models
 from sqlalchemy import extract
+from app.auth import get_current_user
+from typing import List
 
 router = APIRouter()
 
@@ -16,7 +18,8 @@ NOMBRES_MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", 
 def get_sesiones_estado(
     year: int = Query(..., description="Año para las métricas"),
     group_by: str = Query("monthly", description="monthly, quarterly, yearly"),
-    db: Session = Depends(get_session)
+    db: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user)
 ):
     """
     Agrupa sesiones por mes, trimestre o año.
@@ -27,7 +30,7 @@ def get_sesiones_estado(
             func.count(Sesion.idSesion).filter(or_(Sesion.facturado == False, Sesion.facturado == None)).label("count_no_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(Sesion.facturado == True), 0).label("sum_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(or_(Sesion.facturado == False, Sesion.facturado == None)), 0).label("sum_no_facturadas")
-        ).where(extract('year', Sesion.fechaOperacion) == year)
+        ).where(extract('year', Sesion.fechaOperacion) == year, Sesion.empresa_id.in_(user_empresas))
         
         row = db.exec(stmt).first()
         return [{
@@ -45,7 +48,7 @@ def get_sesiones_estado(
             func.count(Sesion.idSesion).filter(or_(Sesion.facturado == False, Sesion.facturado == None)).label("count_no_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(Sesion.facturado == True), 0).label("sum_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(or_(Sesion.facturado == False, Sesion.facturado == None)), 0).label("sum_no_facturadas")
-        ).where(extract('year', Sesion.fechaOperacion) == year).group_by("periodo").order_by("periodo")
+        ).where(extract('year', Sesion.fechaOperacion) == year, Sesion.empresa_id.in_(user_empresas)).group_by("periodo").order_by("periodo")
         
         rows = db.exec(stmt).all()
         data_map = {int(r[0]): r for r in rows}
@@ -65,7 +68,7 @@ def get_sesiones_estado(
             func.count(Sesion.idSesion).filter(or_(Sesion.facturado == False, Sesion.facturado == None)).label("count_no_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(Sesion.facturado == True), 0).label("sum_facturadas"),
             func.coalesce(func.sum(Sesion.total).filter(or_(Sesion.facturado == False, Sesion.facturado == None)), 0).label("sum_no_facturadas")
-        ).where(extract('year', Sesion.fechaOperacion) == year).group_by("mes").order_by("mes")
+        ).where(extract('year', Sesion.fechaOperacion) == year, Sesion.empresa_id.in_(user_empresas)).group_by("mes").order_by("mes")
         
         rows = db.exec(stmt).all()
         data_map = {int(r[0]): r for r in rows}
@@ -83,7 +86,8 @@ def get_sesiones_estado(
 def get_facturacion_total(
     year: int = Query(..., description="Año"),
     group_by: str = Query("monthly", description="monthly o quarterly"),
-    db: Session = Depends(get_session)
+    db: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user)
 ):
     """
     Total facturado agrupado por mes o trimestre de emisión de la factura.
@@ -92,7 +96,7 @@ def get_facturacion_total(
     if group_by == "yearly":
         stmt = select(
             func.coalesce(func.sum(Factura.total), 0).label("total")
-        ).where(extract('year', Factura.fechaEmision) == year)
+        ).where(extract('year', Factura.fechaEmision) == year, Factura.empresa_id.in_(user_empresas))
         row = db.exec(stmt).first()
         return [{"name": str(year), "total": float(row) if row else 0}]
     
@@ -101,7 +105,7 @@ def get_facturacion_total(
             func.floor((extract('month', Factura.fechaEmision) - 1) / 3 + 1).label("periodo"),
             func.coalesce(func.sum(Factura.total), 0).label("total")
         ).where(
-            extract('year', Factura.fechaEmision) == year
+            extract('year', Factura.fechaEmision) == year, Factura.empresa_id.in_(user_empresas)
         ).group_by("periodo").order_by("periodo")
         
         rows = db.exec(stmt).all()
@@ -115,7 +119,7 @@ def get_facturacion_total(
             extract('month', Factura.fechaEmision).label("mes"),
             func.coalesce(func.sum(Factura.total), 0).label("total")
         ).where(
-            extract('year', Factura.fechaEmision) == year
+            extract('year', Factura.fechaEmision) == year, Factura.empresa_id.in_(user_empresas)
         ).group_by("mes").order_by("mes")
         
         rows = db.exec(stmt).all()
@@ -131,7 +135,8 @@ from sqlalchemy import text
 def get_gastos_total(
     year: int = Query(..., description="Año"),
     group_by: str = Query("monthly", description="monthly, quarterly, or yearly"),
-    db: Session = Depends(get_session)
+    db: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user)
 ):
     """
     Total gastos agrupado por mes, trimestre o año de emisión (usando Raw SQL).
@@ -142,8 +147,9 @@ def get_gastos_total(
                    COALESCE(SUM(\"total\"), 0) - COALESCE(SUM(\"totalPagado\"), 0)
             FROM public.gastos 
             WHERE EXTRACT(YEAR FROM \"fechaEmision\") = :year
+            AND empresa_id IN :empresas
         """)
-        row = db.execute(sql, {"year": year}).fetchone()
+        row = db.execute(sql, {"year": year, "empresas": tuple(user_empresas)}).fetchone()
         return [{"name": str(year), "total_pagado": float(row[0]), "total_pendiente": float(row[1])}]
     
     elif group_by == "quarterly":
@@ -153,9 +159,10 @@ def get_gastos_total(
                    COALESCE(SUM(\"total\"), 0) - COALESCE(SUM(\"totalPagado\"), 0) as total_pendiente
             FROM public.gastos 
             WHERE EXTRACT(YEAR FROM \"fechaEmision\") = :year 
+            AND empresa_id IN :empresas
             GROUP BY periodo ORDER BY periodo
         """)
-        rows = db.execute(sql, {"year": year}).fetchall()
+        rows = db.execute(sql, {"year": year, "empresas": tuple(user_empresas)}).fetchall()
         data_map = {int(r[0]): r for r in rows}
         return [
             {
@@ -172,9 +179,10 @@ def get_gastos_total(
                    COALESCE(SUM(\"total\"), 0) - COALESCE(SUM(\"totalPagado\"), 0) as total_pendiente
             FROM public.gastos 
             WHERE EXTRACT(YEAR FROM \"fechaEmision\") = :year 
+            AND empresa_id IN :empresas
             GROUP BY mes ORDER BY mes
         """)
-        rows = db.execute(sql, {"year": year}).fetchall()
+        rows = db.execute(sql, {"year": year, "empresas": tuple(user_empresas)}).fetchall()
         data_map = {int(r[0]): r for r in rows}
         return [
             {

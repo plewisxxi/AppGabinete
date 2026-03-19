@@ -1,6 +1,26 @@
 const API = {
   base: "http://localhost:4000/api",
-  // base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
+  //base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
+
+  async _fetchWithAuth(url, options = {}) {
+    let token = null;
+    try {
+      const { auth } = await import('./firebase.js');
+      if (auth.currentUser) {
+        token = await auth.currentUser.getIdToken();
+      }
+    } catch (e) {
+      console.warn("Could not retrieve firebase token", e);
+    }
+    
+    // Convert headers to Headers object or raw object as needed
+    const headers = { ...options.headers };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    
+    return fetch(url, { ...options, headers });
+  },
 
   // ahora acepta params: { page, page_size, sort, order, q, filters: { campo: valor } }
   async fetchList(endpoint, page = 1, page_size = 50, params = {}) {
@@ -34,7 +54,7 @@ const API = {
       });
     }
 
-    const res = await fetch(url.toString());
+    const res = await this._fetchWithAuth(url.toString());
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(txt || `${res.status} ${res.statusText}`);
@@ -67,13 +87,13 @@ const API = {
   },
 
   async fetchOne(endpoint, id) {
-    const res = await fetch(`${this.base}/${endpoint}/${id}`);
+    const res = await this._fetchWithAuth(`${this.base}/${endpoint}/${id}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
   async create(endpoint, payload) {
-    const res = await fetch(`${this.base}/${endpoint}`, {
+    const res = await this._fetchWithAuth(`${this.base}/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -83,7 +103,7 @@ const API = {
   },
 
   async update(endpoint, id, payload) {
-    const res = await fetch(`${this.base}/${endpoint}/${id}`, {
+    const res = await this._fetchWithAuth(`${this.base}/${endpoint}/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -93,13 +113,13 @@ const API = {
   },
 
   async remove(endpoint, id) {
-    const res = await fetch(`${this.base}/${endpoint}/${id}`, { method: "DELETE" });
+    const res = await this._fetchWithAuth(`${this.base}/${endpoint}/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
   async postAction(endpoint, action, payload) {
-    const res = await fetch(`${this.base}/${endpoint}/${action}`, {
+    const res = await this._fetchWithAuth(`${this.base}/${endpoint}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -114,7 +134,13 @@ const API = {
       if (v !== null && v !== undefined) url.searchParams.set(k, String(v));
     });
 
-    const res = await fetch(url.toString());
+    const res = await this._fetchWithAuth(url.toString());
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async fetchMyEmpresas() {
+    const res = await this._fetchWithAuth(`${this.base}/empresas/me`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   }

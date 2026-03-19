@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+
+#service account key de firebase
+serviceAccountKey.json

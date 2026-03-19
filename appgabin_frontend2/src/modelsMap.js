@@ -6,12 +6,13 @@ export default {
     { field: "Telefono", label: "Telefono", width: "120px" },
     { field: "Direccion", label: "Direccion", width: "250px" },
     { field: "Poblacion", label: "Poblacion", width: "150px" },
-    { field: "codigoPostal", label: "CP", width: "50px" },
+    { field: "codigoPostal", label: "CP", width: "80px" },
     { field: "Pais", label: "Pais", width: "100px" }
   ],
   productos: [
-    { field: "IDProducto", label: "ID", width: "80px" },
-    { field: "descProducto", label: "Descripción", width: "300px", isTitle: true }
+    { field: "IDProducto", label: "ID", row: 1, width: "30%" },
+    { field: "base", label: "Precio Base", type: "money", row: 1, width: "70%" },
+    { field: "descProducto", label: "Descripción", row: 2, width: "100%", isTitle: true }
   ],
   periodos: [
     { field: "IDPeriodo", label: "ID" },
