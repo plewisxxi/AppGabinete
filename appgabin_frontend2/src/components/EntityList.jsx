@@ -20,6 +20,232 @@ export default function EntityList({ endpoint }) {
   const [cloneTargetPeriod, setCloneTargetPeriod] = useState("");
   const [periodOptions, setPeriodOptions] = useState([]);
 
+  // --- Memoria Feature State ---
+  const [showMemoriaModal, setShowMemoriaModal] = useState(false);
+  const [memoriaStartDate, setMemoriaStartDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(0);
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [memoriaEndDate, setMemoriaEndDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(11);
+    d.setDate(31);
+    return d.toISOString().split('T')[0];
+  });
+
+  async function generateMemoria() {
+    if (selectedIds.size !== 1) return;
+    const contactId = Array.from(selectedIds)[0];
+    const contact = items.find(it => it[getIdKey(it)] === contactId);
+    if (!contact) return;
+
+    try {
+      setLoading(true);
+      
+      const formatApiDate = (dateStr) => {
+        const [y, m, d] = dateStr.split('-');
+        return `${d}-${m}-${y}`;
+      };
+
+      const params = {
+        filters: { NIFCliente: contact.NIF, facturado: true },
+        start_date: formatApiDate(memoriaStartDate),
+        end_date: formatApiDate(memoriaEndDate),
+        page_size: 1000
+      };
+      
+      const resSesiones = await API.fetchList('sesiones', 1, 1000, params);
+      const facturas = resSesiones.data || [];
+
+      // Sort facturas chronologically
+      facturas.sort((a, b) => new Date(a.fechaOperacion || 0) - new Date(b.fechaOperacion || 0));
+
+      const templateRes = await fetch('/plantilla_memoria/Plantilla_anvmemoriagabinete.html');
+      if (!templateRes.ok) throw new Error("Plantilla HTML no encontrada en el servidor");
+      let html = await templateRes.text();
+
+      // Fix relative images mapping to the public folder
+      html = html.replace(/src="images\//g, 'src="/plantilla_memoria/images/');
+
+      html = html.replace(/{{NOMBRE}}/g, contact.Nombre || '');
+      html = html.replace(/{{DNI}}/g, contact.NIF || '');
+
+      // Force line break in punto 1 before the image box
+      html = html.replace(
+        /domicilio\):\s*<\/span>\s*<span style="overflow:\s*hidden;\s*display:\s*inline-block;/g,
+        'domicilio):</span><br><br><span style="overflow: hidden; display: block; text-align: center;'
+      );
+
+      const today = new Date();
+      const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+      const dateStr = `${today.getDate()} de ${meses[today.getMonth()]} de ${today.getFullYear()}`;
+      
+      html = html.replace(/\{\{fecha_dia\}\}\s*de\s*Julio\s*de\s*2025/ig, dateStr);
+      html = html.replace(/\{\{fecha_dia\}\}/g, today.getDate());
+
+      const parser = new DOMParser();
+      
+      // Grouping based on Producto
+      const facturasRP = facturas.filter(f => (f.IDProducto && f.IDProducto.includes('RP')) || (f.concepto && f.concepto.toLowerCase().includes('pedagogica')));
+      const facturasRLH = facturas.filter(f => (f.IDProducto && f.IDProducto.includes('RLH')) || (f.concepto && f.concepto.toLowerCase().includes('lenguaje')));
+      const facturasPEAC = facturas.filter(f => (f.IDProducto && f.IDProducto.includes('PEAC')) || (f.concepto && f.concepto.toLowerCase().includes('altas capacidades')));
+
+      const extractMonthYear = (dateStr) => {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+           return `${meses[parseInt(parts[1], 10) - 1]} ${parts[2]}`;
+        }
+        return dateStr;
+      };
+
+      let finalHtml = html;
+      const processCategory = (prefix, list) => {
+        let total = 0;
+        for (let i = 1; i <= 12; i++) {
+          const f = list[i - 1];
+          if (f) {
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_PER_${i}}}`, 'g'), extractMonthYear(f.fechaOperacion));
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FR_${i}}}`, 'g'), f.numeroFactura || '');
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FEC_${i}}}`, 'g'), f.fechaPago || '');
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_IMP_${i}}}`, 'g'), (parseFloat(f.totalPagado) || 0).toFixed(2) + '€');
+            total += (parseFloat(f.totalPagado) || 0);
+          } else {
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_PER_${i}}}`, 'g'), '&nbsp;');
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FR_${i}}}`, 'g'), '&nbsp;');
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FEC_${i}}}`, 'g'), '&nbsp;');
+            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_IMP_${i}}}`, 'g'), '&nbsp;');
+          }
+        }
+        finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_TOTAL}}`, 'g'), total.toFixed(2) + '€');
+        return list.length > 0;
+      };
+
+      const hasRP = processCategory('RP', facturasRP);
+      const hasRLH = processCategory('RLH', facturasRLH);
+      const hasPEAC = processCategory('PEAC', facturasPEAC);
+
+      const finalDoc = parser.parseFromString(finalHtml, 'text/html');
+      
+      // Fix page breaks
+      const hrs = Array.from(finalDoc.querySelectorAll('hr'));
+      hrs.forEach(hr => {
+        if (hr.style.pageBreakBefore === 'always') {
+          hr.outerHTML = '<div class="html2pdf__page-break"></div>';
+        }
+      });
+      
+      const removeTableByMarker = (markerText) => {
+        const ps = Array.from(finalDoc.querySelectorAll('p, span, td'));
+        const markerP = ps.find(p => p.textContent && p.textContent.includes(markerText));
+        if (markerP) {
+          const table = markerP.closest('table');
+          if (table) {
+            let prev = table.previousElementSibling;
+            while(prev && prev.tagName !== 'TABLE' && !(prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break'))) {
+               const pprev = prev.previousElementSibling;
+               prev.remove();
+               prev = pprev;
+            }
+            if (prev && prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break')) {
+               prev.remove();
+            }
+
+            let next = table.nextElementSibling;
+            while(next && next.tagName !== 'TABLE' && !(next.tagName === 'DIV' && next.className.includes('html2pdf__page-break'))) {
+               const nnext = next.nextElementSibling;
+               next.remove();
+               next = nnext;
+            }
+
+            table.remove();
+          }
+        }
+      };
+
+      if (!hasRP) removeTableByMarker('3.1');
+      if (!hasRLH) removeTableByMarker('3.2');
+      if (!hasPEAC) removeTableByMarker('3.3');
+
+      // Enforce nowrap on all table cells to preserve paragraph alignment
+      const tds = Array.from(finalDoc.querySelectorAll('td'));
+      tds.forEach(td => {
+        td.style.whiteSpace = 'nowrap';
+      });
+
+      const fileName = `Memoria_2026_${contact.Nombre}`;
+      
+      // Add print-specific CSS so the page breaks added for html2pdf work natively
+      // AND force background colors/shading to appear in the PDF
+      const cssPrint = `
+        <style>
+          @media print { 
+            .html2pdf__page-break { page-break-before: always; }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
+          }
+        </style>
+      `;
+      const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' + 
+                             finalDoc.head.innerHTML + cssPrint + 
+                             '</head><body>' + finalDoc.body.innerHTML + '</body></html>';
+      
+      // Create a hidden iframe to trigger the native browser print dialog
+      const printIframe = document.createElement('iframe');
+      printIframe.style.position = 'absolute';
+      printIframe.style.top = '-10000px';
+      printIframe.style.left = '-10000px';
+      printIframe.style.width = '100%';
+      printIframe.style.height = '100%';
+      document.body.appendChild(printIframe);
+      
+      printIframe.contentWindow.document.open();
+      printIframe.contentWindow.document.write(fullHtmlString);
+      printIframe.contentWindow.document.close();
+      
+      // Wait for resources (fonts, images) to load before printing
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Los navegadores usan el título de la página principal (no el iframe) 
+      // para el nombre de archivo por defecto al "Guardar como PDF".
+      const originalTitle = document.title;
+      document.title = fileName;
+
+      const cleanupPrint = () => {
+        document.title = originalTitle;
+        setTimeout(() => {
+          if (document.body.contains(printIframe)) {
+            document.body.removeChild(printIframe);
+          }
+        }, 1000);
+      };
+
+      printIframe.contentWindow.addEventListener('afterprint', cleanupPrint);
+      
+      printIframe.contentWindow.focus();
+      try {
+        printIframe.contentWindow.print();
+      } catch (err) {
+        console.warn("Error al abrir diálogo de impresión", err);
+        cleanupPrint();
+      }
+      
+      setShowMemoriaModal(false);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error(err);
+      alert('Error generando memoria: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  // --- End Memoria Feature State ---
+
   function getColField(c) { return typeof c === 'object' ? c.field : c; }
   function getColLabel(c) { return typeof c === 'object' ? (c.label || c.field) : c; }
   function getColWidth(c) {
@@ -758,8 +984,14 @@ export default function EntityList({ endpoint }) {
           </div>
         )}
 
-        {(endpoint === "sesiones" || endpoint === "gastos") && selectedIds.size > 0 && (
+        {(endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && selectedIds.size > 0 && (
           <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+            {endpoint === "contactos" && selectedIds.size === 1 && (
+              <button onClick={() => setShowMemoriaModal(true)} style={{ background: "#0284c7", color: "white", borderColor: "#0284c7" }}>
+                📄 Crear Memoria
+              </button>
+            )}
+
             {endpoint === "sesiones" && (() => {
               const hasBilled = Array.from(selectedIds).some(id => {
                 const item = items.find(it => it[getIdKey(it)] == id);
@@ -804,9 +1036,11 @@ export default function EntityList({ endpoint }) {
               );
             })()}
 
-            <button onClick={() => openCloneModal()} style={{ background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
-              ⚡ Clonar
-            </button>
+            {(endpoint === "sesiones" || endpoint === "gastos") && (
+              <button onClick={() => openCloneModal()} style={{ background: "#0f172a", color: "white", borderColor: "#0f172a" }}>
+                ⚡ Clonar
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -877,7 +1111,7 @@ export default function EntityList({ endpoint }) {
                     <table className="table">
                       <thead>
                         <tr>
-                          {(endpoint === "sesiones" || endpoint === "gastos") && (
+                          {(endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
                             <th style={{ width: 40, textAlign: "center" }}>
                               <input
                                 type="checkbox"
@@ -906,7 +1140,7 @@ export default function EntityList({ endpoint }) {
                           const isSelected = selectedIds.has(it[getIdKey(it)]);
                           return (
                             <tr key={idx} className={isSelected ? "selected-row" : ""}>
-                              {(endpoint === "sesiones" || endpoint === "gastos") && (
+                              {(endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
                                 <td style={{ textAlign: "center" }}>
                                   <input
                                     type="checkbox"
@@ -1039,6 +1273,42 @@ export default function EntityList({ endpoint }) {
                 endpoint={externalViewing.endpoint}
                 fieldOptions={fieldOptions}
               />
+            </div>
+          </div>
+        )
+      }
+      {
+        showMemoriaModal && (
+          <div className="modal-backdrop" onClick={() => setShowMemoriaModal(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
+              <h3>Crear Memoria</h3>
+              <p>Selecciona el periodo que debe abarcar el informe.</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                <label>Fecha Desde:</label>
+                <input 
+                  type="date" 
+                  value={memoriaStartDate} 
+                  onChange={e => setMemoriaStartDate(e.target.value)} 
+                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }} 
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                <label>Fecha Hasta:</label>
+                <input 
+                  type="date" 
+                  value={memoriaEndDate} 
+                  onChange={e => setMemoriaEndDate(e.target.value)} 
+                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }} 
+                />
+              </div>
+
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setShowMemoriaModal(false)}>Cancelar</button>
+                <button className="primary" onClick={generateMemoria} disabled={!memoriaStartDate || !memoriaEndDate || loading}>
+                  {loading ? 'Generando...' : 'Confirmar'}
+                </button>
+              </div>
             </div>
           </div>
         )

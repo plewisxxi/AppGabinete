@@ -1,6 +1,6 @@
 const API = {
-  base: "http://localhost:4000/api",
-  //base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
+  //base: "http://localhost:4000/api",
+  base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
 
   async _fetchWithAuth(url, options = {}) {
     let token = null;
@@ -12,13 +12,13 @@ const API = {
     } catch (e) {
       console.warn("Could not retrieve firebase token", e);
     }
-    
+
     // Convert headers to Headers object or raw object as needed
     const headers = { ...options.headers };
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
-    
+
     return fetch(url, { ...options, headers });
   },
 
@@ -40,7 +40,7 @@ const API = {
     // custom top-level parameters (e.g. pagado) - include any that aren't already handled
     Object.entries(params).forEach(([k, v]) => {
       if (v == null) return;
-      if (["sort","order","q","year","quarter","start_date","end_date","filters"].includes(k)) return;
+      if (["sort", "order", "q", "year", "quarter", "start_date", "end_date", "filters"].includes(k)) return;
       // avoid overriding if already set above
       url.searchParams.set(k, String(v));
     });
