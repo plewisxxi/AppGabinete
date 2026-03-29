@@ -1,18 +1,18 @@
 export default {
   contactos: [
-    { field: "NIF", label: "NIF", width: "100px" },
-    { field: "Nombre", label: "Nombre", width: "250px", isTitle: true },
-    { field: "Email", label: "Email", width: "250px" },
-    { field: "Telefono", label: "Telefono", width: "120px" },
-    { field: "Direccion", label: "Direccion", width: "250px" },
-    { field: "Poblacion", label: "Poblacion", width: "150px" },
-    { field: "codigoPostal", label: "CP", width: "80px" },
-    { field: "Pais", label: "Pais", width: "100px" }
+    { field: "NIF", label: "NIF", width: "100px", widthList: "100px" },
+    { field: "Nombre", label: "Nombre", width: "250px", isTitle: true, widthList: "200px" },
+    { field: "Email", label: "Email", width: "250px", widthList: "auto" },
+    { field: "Telefono", label: "Telefono", width: "120px", widthList: "120px" },
+    { field: "Direccion", label: "Direccion", width: "250px", hideInList: true },
+    { field: "Poblacion", label: "Poblacion", width: "150px", hideInList: true },
+    { field: "codigoPostal", label: "CP", width: "80px", hideInList: true },
+    { field: "Pais", label: "Pais", width: "100px", hideInList: true }
   ],
   productos: [
-    { field: "IDProducto", label: "ID", row: 1, width: "30%" },
-    { field: "base", label: "Precio Base", type: "money", row: 1, width: "70%" },
-    { field: "descProducto", label: "Descripción", row: 2, width: "100%", isTitle: true }
+    { field: "IDProducto", label: "ID", row: 1, width: "30%", widthList: "100px" },
+    { field: "descProducto", label: "Descripción", row: 2, width: "100%", isTitle: true, widthList: "auto" },
+    { field: "base", label: "Precio Base", type: "money", row: 1, width: "70%", widthList: "120px" }
   ],
   periodos: [
     { field: "IDPeriodo", label: "ID" },

@@ -3,12 +3,14 @@ import { useAuth } from "../AuthContext";
 import API from "../api";
 
 export default function Sidebar({ current, onChange }) {
-    const [collapsed, setCollapsed] = useState(false);
+    // Start collapsed on mobile
+    const [collapsed, setCollapsed] = useState(typeof window !== "undefined" ? window.innerWidth <= 768 : false);
     const [empresaNombre, setEmpresaNombre] = useState(null);
     const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth <= 768 : false);
     const { user, logout, idToken } = useAuth();
 
     const menuItems = [
+        { id: "resumen", label: "Resumen", icon: "📋" },
         { id: "dashboard", label: "Métricas", icon: "📊" },
         { id: "separator", type: "separator" },
         { id: "contactos", label: "Contactos", icon: "👥" },
@@ -35,7 +37,10 @@ export default function Sidebar({ current, onChange }) {
 
         // Track mobile layout so we can show logout in the nav on small screens
         function updateIsMobile() {
-            setIsMobile(window.innerWidth <= 768);
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            // On mobile, we only want to keep it collapsed and open on demand
+            if (mobile) setCollapsed(true);
         }
 
         updateIsMobile();
@@ -43,17 +48,22 @@ export default function Sidebar({ current, onChange }) {
         return () => window.removeEventListener("resize", updateIsMobile);
     }, []);
 
+    const handleNavClick = (id) => {
+        onChange(id);
+        if (isMobile) setCollapsed(true);
+    };
+
     return (
         <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
             <div className="sidebar-header">
-                {!collapsed && (
+                {(isMobile || !collapsed) && (
                     <div className="header-content">
-                        <h2>Gestion Gabinete</h2>
-                        {empresaNombre && <span className="company-name">{empresaNombre}</span>}
+                        <h2>Gabinete</h2>
+                        {!collapsed && empresaNombre && <span className="company-name">{empresaNombre}</span>}
                     </div>
                 )}
                 <button className="toggle-btn" onClick={() => setCollapsed(!collapsed)}>
-                    {collapsed ? "☰" : "«"}
+                    {collapsed ? "☰" : "✕"}
                 </button>
             </div>
 
@@ -66,11 +76,11 @@ export default function Sidebar({ current, onChange }) {
                         <button
                             key={item.id}
                             className={`nav-item ${current === item.id ? "active" : ""}`}
-                            onClick={() => onChange(item.id)}
-                            title={collapsed ? item.label : ""}
+                            onClick={() => handleNavClick(item.id)}
+                            title={collapsed && !isMobile ? item.label : ""}
                         >
                             <span className="icon">{item.icon}</span>
-                            {!collapsed && <span className="label">{item.label}</span>}
+                            {(!collapsed || isMobile) && <span className="label">{item.label}</span>}
                         </button>
                     );
                 })}

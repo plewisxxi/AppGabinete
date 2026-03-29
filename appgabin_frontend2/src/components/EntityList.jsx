@@ -13,6 +13,24 @@ export default function EntityList({ endpoint }) {
   const [columns, setColumns] = useState([]);
   const [error, setError] = useState(null);
   const requestIdRef = useRef(0);
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth <= 768 : false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const getAvatarColor = (name) => {
+    const colors = ["#4f46e5", "#10b981", "#ef4444", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4"];
+    if (!name) return colors[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
 
   // Selection
   const [selectedIds, setSelectedIds] = useState(new Set()); // Set of selected IDs
@@ -183,25 +201,55 @@ export default function EntityList({ endpoint }) {
         <style>
           @media print { 
             .html2pdf__page-break { page-break-before: always; }
+            .no-print { display: none !important; }
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
               color-adjust: exact !important;
             }
           }
+          .close-overlay-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 99999;
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: sans-serif;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          }
         </style>
       `;
-      const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' + 
-                             finalDoc.head.innerHTML + cssPrint + 
-                             '</head><body>' + finalDoc.body.innerHTML + '</body></html>';
       
-      // Create a hidden iframe to trigger the native browser print dialog
+      // Detectar si es dispositivo móvil para aplicar el fix de impresión
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const closeButtonHtml = isMobile ? `<button onclick="window.frameElement.remove()" class="close-overlay-btn no-print">Cerrar Vista Previa</button>` : '';
+
+      const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' + 
+                             finalDoc.head.innerHTML + cssPrint +
+                             '</head><body>' + closeButtonHtml + finalDoc.body.innerHTML + '</body></html>';
+      
+      // Create iframe. On mobile, visible/fullscreen logic. On desktop, hidden logic.
       const printIframe = document.createElement('iframe');
-      printIframe.style.position = 'absolute';
-      printIframe.style.top = '-10000px';
-      printIframe.style.left = '-10000px';
-      printIframe.style.width = '100%';
-      printIframe.style.height = '100%';
+      if (isMobile) {
+        printIframe.style.position = 'fixed';
+        printIframe.style.top = '0';
+        printIframe.style.left = '0';
+        printIframe.style.width = '100%';
+        printIframe.style.height = '100%';
+        printIframe.style.zIndex = '2147483647';
+        printIframe.style.backgroundColor = '#ffffff';
+      } else {
+        printIframe.style.position = 'absolute';
+        printIframe.style.top = '-10000px';
+        printIframe.style.left = '-10000px';
+      }
+      printIframe.style.border = 'none';
       document.body.appendChild(printIframe);
       
       printIframe.contentWindow.document.open();
@@ -520,6 +568,7 @@ export default function EntityList({ endpoint }) {
       const q = (globalInput ?? "").trim();
       setGlobalQ(q);
       setPage(1);
+      if (isMobile) setShowMobileFilters(false);
     }
     if (e.key === "Escape") {
       setGlobalInput("");
@@ -672,13 +721,17 @@ export default function EntityList({ endpoint }) {
     }
   }
 
-  async function createNew(payload) {
+  async function createNew(payload, keepOpen = false) {
     try {
       await API.create(endpoint, payload);
-      setShowNewWithOptions(false);
+      alert("Elemento creado exitosamente.");
+      if (!keepOpen) {
+        setShowNewWithOptions(false);
+      }
       load();
     } catch (e) {
       alert("Error creating: " + (e.message || e));
+      throw e;
     }
   }
 
@@ -841,32 +894,53 @@ export default function EntityList({ endpoint }) {
         <div className="entity-list-title-group">
           <strong className="entity-list-title">{endpoint.toUpperCase()}</strong>
           {selectedIds.size > 0 && (
-            <span style={{ marginLeft: 12, fontSize: 14, color: "var(--primary-1)", background: "#e0e7ff", padding: "2px 8px", borderRadius: 4 }}>
+            <span className="selection-badge">
               {selectedIds.size} seleccionados
             </span>
           )}
         </div>
 
         <div className="pagination-group">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} title="Previous page">«</button>
-          <span>{page}</span>
-          <button onClick={() => { if (hasMore) setPage(p => p + 1); else setPage(p => p + 1); }} disabled={loading || (items.length === 0 && page > 1 && !hasMore)} title="Next page">»</button>
+          <div className="pagination-buttons">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} title="Previous page">«</button>
+            <span className="page-number">{page}</span>
+            <button onClick={() => { if (hasMore) setPage(p => p + 1); else setPage(p => p + 1); }} disabled={loading || (items.length === 0 && page > 1 && !hasMore)} title="Next page">»</button>
+          </div>
 
-          <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} title="Items per page">
-            {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <span style={{ marginLeft: 8, fontSize: "0.9em", color: "#666" }}>
-            Mostrando {Math.min((page - 1) * pageSize + 1, totalItems)} - {Math.min(page * pageSize, totalItems)} de {totalItems}
+          {!isMobile && (
+            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} title="Items per page">
+              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          )}
+
+          <span className="pagination-text">
+            {isMobile ? `${Math.min((page - 1) * pageSize + 1, totalItems)}-${Math.min(page * pageSize, totalItems)} de ${totalItems}` : `Mostrando ${Math.min((page - 1) * pageSize + 1, totalItems)} - ${Math.min(page * pageSize, totalItems)} de ${totalItems}`}
           </span>
         </div>
 
         <div className="entity-list-actions">
-          <button onClick={load}>Refrescar</button>
-          <button className="primary" onClick={startNew}>Nuevo</button>
+          {isMobile && (
+            <button
+              className="filter-toggle-btn"
+              onClick={() => setShowMobileFilters(true)}
+              title="Mostrar Filtros"
+            >
+              🔍
+            </button>
+          )}
+          <button onClick={load} title="Refrescar" className={`refresh-btn ${isMobile ? 'icon-only' : ''}`}>
+            {isMobile ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24" />
+                <polyline points="21 3 21 8 16 8" />
+              </svg>
+            ) : "Refrescar"}
+          </button>
+          <button className={`primary ${isMobile ? 'mobile-new-btn' : ''}`} onClick={startNew}>Nuevo</button>
         </div>
       </div>
 
-      <div className="static-filters-bar" style={{
+      <div className={`static-filters-bar ${isMobile ? 'mobile-popup' : ''} ${isMobile && showMobileFilters ? 'show' : ''}`} style={!isMobile ? {
         display: 'flex',
         gap: '12px',
         alignItems: 'center',
@@ -876,8 +950,14 @@ export default function EntityList({ endpoint }) {
         borderRadius: '8px',
         border: '1px solid #e2e8f0',
         flexWrap: 'wrap'
-      }}>
-        <div className="search-container" style={{ flex: 1, minWidth: '200px', margin: 0 }}>
+      } : {}}>
+        {isMobile && (
+          <div className="mobile-filter-header">
+            <strong>Filtros y Búsqueda</strong>
+            <button onClick={() => setShowMobileFilters(false)}>✕</button>
+          </div>
+        )}
+        <div className="search-container" style={{ flex: isMobile ? 'none' : 1, minWidth: isMobile ? '100%' : '200px', margin: 0 }}>
           <input
             className="search-input"
             style={{ width: '100%' }}
@@ -889,27 +969,27 @@ export default function EntityList({ endpoint }) {
         </div>
 
         {endpoint === "sesiones" && (
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: 'white', padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+          <div style={{ display: 'flex', gap: isMobile ? '8px' : '16px', alignItems: 'center', justifyContent: isMobile ? 'center' : 'flex-start', background: 'white', padding: isMobile ? '12px 10px' : '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', minHeight: isMobile ? '48px' : 'auto' }}>
+            <div style={{ display: 'flex', gap: isMobile ? '16px' : '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: isMobile ? '15px' : '14px' }}>
                 <input
                   type="checkbox"
+                  style={{ width: isMobile ? '18px' : 'auto', height: isMobile ? '18px' : 'auto' }}
                   checked={filterFacturado === 'true'}
                   onChange={() => {
-                    const next = filterFacturado === 'true' ? 'all' : 'true';
-                    setFilterFacturado(next);
+                    setFilterFacturado(filterFacturado === 'true' ? 'all' : 'true');
                     setPage(1);
                   }}
                 />
                 Facturados
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: isMobile ? '15px' : '14px' }}>
                 <input
                   type="checkbox"
+                  style={{ width: isMobile ? '18px' : 'auto', height: isMobile ? '18px' : 'auto' }}
                   checked={filterFacturado === 'false'}
                   onChange={() => {
-                    const next = filterFacturado === 'false' ? 'all' : 'false';
-                    setFilterFacturado(next);
+                    setFilterFacturado(filterFacturado === 'false' ? 'all' : 'false');
                     setPage(1);
                   }}
                 />
@@ -920,27 +1000,27 @@ export default function EntityList({ endpoint }) {
         )}
 
         {endpoint === "gastos" && (
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: 'white', padding: '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+          <div style={{ display: 'flex', gap: isMobile ? '8px' : '16px', alignItems: 'center', justifyContent: isMobile ? 'center' : 'flex-start', background: 'white', padding: isMobile ? '12px 10px' : '6px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', minHeight: isMobile ? '48px' : 'auto' }}>
+            <div style={{ display: 'flex', gap: isMobile ? '16px' : '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: isMobile ? '15px' : '14px' }}>
                 <input
                   type="checkbox"
+                  style={{ width: isMobile ? '18px' : 'auto', height: isMobile ? '18px' : 'auto' }}
                   checked={filterPagado === 'true'}
                   onChange={() => {
-                    const next = filterPagado === 'true' ? 'all' : 'true';
-                    setFilterPagado(next);
+                    setFilterPagado(filterPagado === 'true' ? 'all' : 'true');
                     setPage(1);
                   }}
                 />
                 Pagados
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: isMobile ? '15px' : '14px' }}>
                 <input
                   type="checkbox"
+                  style={{ width: isMobile ? '18px' : 'auto', height: isMobile ? '18px' : 'auto' }}
                   checked={filterPagado === 'false'}
                   onChange={() => {
-                    const next = filterPagado === 'false' ? 'all' : 'false';
-                    setFilterPagado(next);
+                    setFilterPagado(filterPagado === 'false' ? 'all' : 'false');
                     setPage(1);
                   }}
                 />
@@ -951,14 +1031,14 @@ export default function EntityList({ endpoint }) {
         )}
 
         {(endpoint === "sesiones" || endpoint === "facturas" || endpoint === "gastos") && (
-          <div className="filter-group" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: "8px", borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+          <div className="filter-group" style={{ display: "flex", gap: isMobile ? 8 : 6, alignItems: "center" }}>
+            <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(1); }} title="Filtrar por Año" style={{ padding: isMobile ? "10px" : "8px", borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: isMobile ? "15px" : "14px", height: isMobile ? "44px" : "auto", flex: isMobile ? 1 : 'none' }}>
               <option value="">Año</option>
               {Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
-            <select value={filterPeriod} onChange={e => { setFilterPeriod(e.target.value); setPage(1); }} title="Filtrar por Periodo" style={{ padding: "8px", borderRadius: '6px', border: '1px solid #e2e8f0', minWidth: 120 }}>
+            <select value={filterPeriod} onChange={e => { setFilterPeriod(e.target.value); setPage(1); }} title="Filtrar por Periodo" style={{ padding: isMobile ? "10px" : "8px", borderRadius: '6px', border: '1px solid #e2e8f0', minWidth: isMobile ? 140 : 120, fontSize: isMobile ? "15px" : "14px", height: isMobile ? "44px" : "auto", flex: isMobile ? 2 : 'none' }}>
               <option value="">Periodo</option>
               <optgroup label="Trimestres">
                 <option value="Q1">Trimestre 1</option>
@@ -1043,6 +1123,16 @@ export default function EntityList({ endpoint }) {
             )}
           </div>
         )}
+
+        {isMobile && (
+          <button 
+            className="primary" 
+            style={{ width: '100%', marginTop: isMobile ? '8px' : 'auto', padding: '14px' }}
+            onClick={() => setShowMobileFilters(false)}
+          >
+            Ver Resultados
+          </button>
+        )}
       </div>
 
       {
@@ -1056,21 +1146,9 @@ export default function EntityList({ endpoint }) {
 
       {
         aggregates && (
-          <div style={{
-            background: "#f1f5f9",
-            padding: "10px 16px",
-            borderRadius: 8,
-            marginBottom: 12,
-            display: "flex",
-            gap: 20,
-            fontSize: 14,
-            fontWeight: 600,
-            border: "1px solid var(--border)",
-            color: "var(--text)"
-          }}>
-            <span style={{ color: "var(--muted)" }}>RESUMEN:</span>
-            {Object.entries(aggregates).map(([k, v]) => {
-              const label = k === 'base' ? 'BASE' : k === 'total' ? 'TOTAL' : k === 'totalPagado' ? 'PAGADO' : k === 'pendiente' ? 'PENDIENTE' : k.toUpperCase();
+          <div className="aggregates-bar">
+            {Object.entries(aggregates).filter(([k]) => k !== 'base').map(([k, v]) => {
+              const label = k === 'total' ? 'TOTAL' : k === 'totalPagado' ? 'PAGADO' : k === 'pendiente' ? 'PENDIENTE' : k.toUpperCase();
               return (
                 <div key={k} style={{ display: "flex", gap: 6 }}>
                   <span style={{ color: "var(--muted)" }}>{label}:</span>
@@ -1085,8 +1163,8 @@ export default function EntityList({ endpoint }) {
       }
 
       {
-        loading ? <div className="card">Cargando...</div> : (
-          <>
+        loading && (!items || items.length === 0) ? <div className="card">Cargando...</div> : (
+          <div style={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto' }}>
             {(!items || items.length === 0) ? (
               <div className="card"><em className="muted">No hay elementos para "{endpoint}".</em>
                 <div style={{ marginTop: 8 }} className="pretty-json">Última respuesta: {items && items.length === 0 ? "[]" : JSON.stringify(items, null, 2)}</div>
@@ -1108,10 +1186,10 @@ export default function EntityList({ endpoint }) {
                   </div>
                 ) : (
                   <div className="table-container">
-                    <table className="table">
+                    <table className={`table card-table ${endpoint === 'contactos' ? 'contactos-table' : ''}`}>
                       <thead>
                         <tr>
-                          {(endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
+                          {(!isMobile || endpoint !== "contactos") && (endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
                             <th style={{ width: 40, textAlign: "center" }}>
                               <input
                                 type="checkbox"
@@ -1132,16 +1210,170 @@ export default function EntityList({ endpoint }) {
                               </th>
                             );
                           })}
-                          <th style={{ width: 160 }}>Acciones</th>
+                          <th style={{ width: (isMobile && endpoint === 'contactos') ? 60 : 160, textAlign: 'center' }}>
+                            {(isMobile && endpoint === 'contactos') ? '' : 'Acciones'}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {items.map((it, idx) => {
-                          const isSelected = selectedIds.has(it[getIdKey(it)]);
+                          const id = it[getIdKey(it)];
+                          const isSelected = selectedIds.has(id);
+                          
+                          // Long press logic for mobile
+                          let timer;
+                          const handleTouchStart = () => {
+                            if (!isMobile || endpoint !== 'contactos') return;
+                            timer = setTimeout(() => {
+                              toggleSelect(it);
+                              if (navigator.vibrate) navigator.vibrate(50);
+                            }, 600);
+                          };
+                          const handleTouchEnd = () => {
+                            clearTimeout(timer);
+                          };
+
+                          if (isMobile && endpoint === 'sesiones') {
+                            return (
+                              <tr key={idx} className={`session-card-mobile-final ${isSelected ? "selected-row" : ""}`}>
+                                <td className="session-compact-td-final">
+                                  {/* Line 1: Date (Left), Total (Center, red/green), ID (Right) */}
+                                  <div className="session-line session-line-1">
+                                    <span className="session-date"><strong>{it.fechaOperacion || "—"}</strong></span>
+                                    <span className="session-total-main" style={{ color: it.facturado ? '#059669' : '#dc2626' }}><strong>{renderCell(it.total)}€</strong></span>
+                                    <span className="session-id">ID: <strong>{it.idSesion}</strong></span>
+                                  </div>
+                                  
+                                  {/* Line 2: Nombre contacto (Left, Bold) */}
+                                  <div className="session-line session-line-2">
+                                    <span className="session-contact-name"><strong>{it.nombreContacto || "N/A"}</strong></span>
+                                  </div>
+                                  
+                                  {/* Line 3: Concepto (Left, Uppercase) */}
+                                  <div className="session-line session-line-3">
+                                    <span className="session-concept-text">{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
+                                  </div>
+                                  
+                                  {/* Billing Info — only when invoiced */}
+                                  {it.facturado && (
+                                    <div className="session-billing-section-modern">
+                                      <div className="session-line billing-header-blue">
+                                        DATOS DE FACTURACIÓN
+                                      </div>
+                                      <div className="billing-details-summary-box">
+                                        <div className="billing-summary-item">
+                                          <span className="summary-label">Nº:</span>
+                                          <span className="summary-value"><strong>{it.numeroFactura || "N/A"}</strong></span>
+                                        </div>
+                                        <div className="billing-summary-item">
+                                          <span className="summary-label">Fecha:</span>
+                                          <span className="summary-value"><strong>{it.fechaPago || "N/A"}</strong></span>
+                                        </div>
+                                        <div className="billing-summary-item">
+                                          <span className="summary-label">Total:</span>
+                                          <span className="summary-value"><strong>{renderCell(it.totalPagado)}€</strong></span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+
+                                  <div className="session-actions-final">
+                                    <ActionMenu
+                                      onEdit={() => startEdit(it)}
+                                      onDelete={() => remove(it)}
+                                      onView={() => startView(it)}
+                                      canEdit={(it.facturado !== true && it.numeroFactura == null)}
+                                      canDelete={(it.facturado !== true && it.numeroFactura == null)}
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (isMobile && endpoint === 'contactos') {
+                            return (
+                              <tr 
+                                key={idx} 
+                                className={`selected-row-mobile ${isSelected ? "selected-row" : ""}`}
+                                onPointerDown={handleTouchStart}
+                                onPointerUp={handleTouchEnd}
+                                onPointerLeave={handleTouchEnd}
+                              >
+                                <td className="contact-compact-td">
+                                  <div className="contact-top-row">
+                                    <div className="contact-avatar" style={{ background: getAvatarColor(it.Nombre) }}>
+                                      {(it.Nombre || "?")[0].toUpperCase()}
+                                    </div>
+                                    <div className="contact-name">{it.Nombre}</div>
+                                  </div>
+                                  <div className="contact-bottom-row">
+                                    <div className="contact-nif">{it.NIF}</div>
+                                    <div className="contact-actions-minimal">
+                                      <ActionMenu
+                                        onEdit={() => startEdit(it)}
+                                        onDelete={() => remove(it)}
+                                        onView={() => startView(it)}
+                                        canEdit={true}
+                                        canDelete={true}
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (isMobile && endpoint === 'facturas') {
+                            return (
+                              <tr key={idx} className={`factura-card-mobile ${isSelected ? "selected-row" : ""}`}>
+                                <td className="factura-compact-td">
+                                  {/* Line 1: Numero (Left), Total (Center), Fecha Emision (Right) */}
+                                  <div className="factura-line factura-line-1">
+                                    <span className="factura-number"><strong>{it.numeroFactura || "—"}</strong></span>
+                                    <span className="factura-total-main"><strong>{renderCell(it.total)}€</strong></span>
+                                    <span className="factura-date"><strong>{renderCell(it.fechaEmision)}</strong></span>
+                                  </div>
+                                  
+                                  {/* Line 2: Contacto (Full Width) */}
+                                  <div className="factura-line factura-line-2">
+                                    <span className="factura-contact-name"><strong>{it.nombreContacto || "—"}</strong></span>
+                                  </div>
+                                  
+                                  {/* Line 3: Concepto (Full Width) */}
+                                  <div className="factura-line factura-line-3">
+                                    <span className="factura-concept-text">{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
+                                  </div>
+                                  
+                                  {/* Line 4: Info extra */}
+                                  <div className="factura-line factura-line-4">
+                                    <div className="factura-extra-info">
+                                       <span className="factura-trimestre">{it.trimestre || "—"}</span>
+                                       <span className="info-separator">•</span>
+                                       <span className="factura-periodo">{it.IDPeriodo || "—"}</span>
+                                       {(it.esRectificativa === true || it.esRectificativa === 'true') && <span className="rectificativa-tag">RECTIFICATIVA</span>}
+                                    </div>
+                                  </div>
+      
+                                  <div className="factura-actions">
+                                    <ActionMenu
+                                      onEdit={() => startEdit(it)}
+                                      onDelete={() => remove(it)}
+                                      onView={() => startView(it)}
+                                      canEdit={false}
+                                      canDelete={false}
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
                           return (
                             <tr key={idx} className={isSelected ? "selected-row" : ""}>
                               {(endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
-                                <td style={{ textAlign: "center" }}>
+                                <td data-label="Seleccionar" style={{ textAlign: "center" }}>
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
@@ -1151,15 +1383,16 @@ export default function EntityList({ endpoint }) {
                               )}
                               {columns.filter(col => (typeof col !== 'object' || (col.type !== 'separator' && col.type !== 'title' && col.hideInList !== true))).map(col => {
                                 const c = getColField(col);
+                                const label = getColLabel(col);
                                 const val = it[c];
                                 // Custom renderer for Facturado status
                                 if (c === 'facturado') {
-                                  if (val === true) return <td key={c} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
-                                  return <td key={c} style={{ textAlign: 'center', color: '#94a3b8' }}>—</td>;
+                                  if (val === true) return <td key={c} data-label={label} style={{ textAlign: 'center', fontSize: '18px' }} title="FACTURADO">✅</td>;
+                                  return <td key={c} data-label={label} style={{ textAlign: 'center', color: '#94a3b8' }}>—</td>;
                                 }
-                                return <td key={c}>{renderCell(val)}</td>
+                                return <td key={c} data-label={label}>{renderCell(val)}</td>
                               })}
-                              <td style={{ whiteSpace: "nowrap" }}>
+                              <td data-label="Acciones" style={{ whiteSpace: "nowrap" }}>
                                 <ActionMenu
                                   onEdit={() => startEdit(it)}
                                   onDelete={() => remove(it)}
@@ -1185,7 +1418,7 @@ export default function EntityList({ endpoint }) {
                 )}
               </>
             )}
-          </>
+          </div>
         )
       }
 
@@ -1204,6 +1437,7 @@ export default function EntityList({ endpoint }) {
                 fieldOptions={fieldOptions}
                 onViewExternal={handleViewExternal}
                 onPay={confirmPayment}
+                endpoint={endpoint}
               />
             </div>
           </div>
@@ -1214,7 +1448,7 @@ export default function EntityList({ endpoint }) {
         showNewWithOptions && (
           <div className="modal-backdrop" onClick={() => setShowNewWithOptions(false)}>
             <div className="modal" onClick={e => e.stopPropagation()}>
-              <h3>Nuevo {endpoint.slice(0, -1)}</h3>
+              <h3>{{ sesiones: "Nueva Sesion", facturas: "Nueva Factura" }[endpoint] || `Nuevo ${endpoint.slice(0, -1)}`}</h3>
               {loadingOptions ? (
                 <div style={{ padding: "20px", textAlign: "center" }}>Cargando opciones...</div>
               ) : (
@@ -1226,6 +1460,7 @@ export default function EntityList({ endpoint }) {
                   isNew={true}
                   keepStringFields={endpoint === "contactos" ? contactosKeep : []}
                   fieldOptions={fieldOptions}
+                  endpoint={endpoint}
                 />
               )}
             </div>

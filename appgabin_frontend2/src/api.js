@@ -1,6 +1,6 @@
 const API = {
-  //base: "http://localhost:4000/api",
-  base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
+  base: "http://localhost:4000/api",
+  //base: "https://appgabinete-32604191455.europe-southwest1.run.app/api",
 
   async _fetchWithAuth(url, options = {}) {
     let token = null;
@@ -19,7 +19,14 @@ const API = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    return fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers });
+
+    // Intercept 403 Forbidden specifically (e.g. User status PENDIENTE or no companies)
+    if (res.status === 403) {
+      window.dispatchEvent(new Event('unauthorized'));
+    }
+
+    return res;
   },
 
   // ahora acepta params: { page, page_size, sort, order, q, filters: { campo: valor } }

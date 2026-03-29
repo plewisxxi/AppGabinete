@@ -192,3 +192,77 @@ def get_gastos_total(
             }
             for m in range(1, 13)
         ]
+
+@router.get("/resumen")
+def get_resumen(
+    start_date: str = Query(..., description="Fecha inicio YYYY-MM-DD"),
+    end_date: str = Query(..., description="Fecha fin YYYY-MM-DD"),
+    db: Session = Depends(get_session),
+    user_empresas: List[int] = Depends(get_current_user)
+):
+    """
+    Devuelve los totales para la tarjeta de resumen interactiva.
+    """
+    from datetime import datetime
+    s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+    e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    # 1. Sesiones
+    stmt_sesiones = select(
+        func.count(Sesion.idSesion).label("total_count"),
+        func.coalesce(func.sum(Sesion.total), 0).label("total_sum"),
+        
+        func.count(Sesion.idSesion).filter(Sesion.facturado == True).label("count_facturadas"),
+        func.coalesce(func.sum(Sesion.total).filter(Sesion.facturado == True), 0).label("sum_facturadas"),
+        
+        func.count(Sesion.idSesion).filter(or_(Sesion.facturado == False, Sesion.facturado == None)).label("count_no_facturadas"),
+        func.coalesce(func.sum(Sesion.total).filter(or_(Sesion.facturado == False, Sesion.facturado == None)), 0).label("sum_no_facturadas")
+    ).where(
+        Sesion.fechaOperacion >= s_date,
+        Sesion.fechaOperacion <= e_date,
+        Sesion.empresa_id.in_(user_empresas)
+    )
+    s_row = db.exec(stmt_sesiones).first()
+
+    # 2. Facturas (Ingresos) by fechaEmision
+    Factura = models.Factura
+    stmt_facturas = select(
+        func.count(Factura.numeroFactura).label("count"),
+        func.coalesce(func.sum(Factura.total), 0).label("sum")
+    ).where(
+        Factura.fechaEmision >= s_date,
+        Factura.fechaEmision <= e_date,
+        Factura.empresa_id.in_(user_empresas)
+    )
+    f_row = db.exec(stmt_facturas).first()
+
+    # 3. Gastos by fechaPago
+    Gasto = models.Gasto
+    stmt_gastos = select(
+        func.count(Gasto.id).label("count"),
+        func.coalesce(func.sum(Gasto.total), 0).label("sum")
+    ).where(
+        Gasto.fechaPago >= s_date,
+        Gasto.fechaPago <= e_date,
+        Gasto.empresa_id.in_(user_empresas)
+    )
+    g_row = db.exec(stmt_gastos).first()
+
+    return {
+        "sesiones": {
+            "total_count": int(s_row[0] if s_row else 0),
+            "total_sum": float(s_row[1] if s_row else 0),
+            "count_facturadas": int(s_row[2] if s_row else 0),
+            "sum_facturadas": float(s_row[3] if s_row else 0),
+            "count_no_facturadas": int(s_row[4] if s_row else 0),
+            "sum_no_facturadas": float(s_row[5] if s_row else 0),
+        },
+        "ingresos": {
+            "count": int(f_row[0] if f_row else 0),
+            "sum": float(f_row[1] if f_row else 0)
+        },
+        "gastos": {
+            "count": int(g_row[0] if g_row else 0),
+            "sum": float(g_row[1] if g_row else 0)
+        }
+    }

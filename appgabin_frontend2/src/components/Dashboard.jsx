@@ -206,7 +206,7 @@ export default function Dashboard() {
             <div className="dashboard-grid">
 
                 {/* Gráfico 1: Sesiones Facturadas vs No Facturadas (Importes) */}
-                <div className="card" style={{ height: 450 }}>
+                <div className="card dashboard-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                         <h3 style={{ margin: 0, fontSize: 18 }}>Estado de Sesiones (€)</h3>
                         <GroupingSelector current={groupingEstado} onChange={setGroupingEstado} />
@@ -231,7 +231,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Gráfico 2: Facturación Total */}
-                <div className="card" style={{ height: 450 }}>
+                <div className="card dashboard-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                         <h3 style={{ margin: 0, fontSize: 18 }}>Total Facturado (€)</h3>
                         <GroupingSelector current={groupingFact} onChange={setGroupingFact} />
@@ -255,7 +255,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Gráfico 3: Total Gastos */}
-                <div className="card" style={{ height: 450 }}>
+                <div className="card dashboard-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                         <h3 style={{ margin: 0, fontSize: 18 }}>Total Gastos (€)</h3>
                         <GroupingSelector current={groupingGastos} onChange={setGroupingGastos} />

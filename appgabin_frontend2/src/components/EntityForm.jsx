@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export default function EntityForm({
   columns = [],
@@ -20,6 +20,25 @@ export default function EntityForm({
 
   function getColField(c) { return typeof c === 'object' ? c.field : c; }
   function getColLabel(c) { return typeof c === 'object' ? (c.label || c.field) : c; }
+
+  const formRef = useRef(null);
+
+  function focusFirstField() {
+    if (formRef.current) {
+      setTimeout(() => {
+        const firstInput = formRef.current.querySelector('input:not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])');
+        if (firstInput) {
+          firstInput.focus();
+        }
+      }, 50);
+    }
+  }
+
+  useEffect(() => {
+    if (isNew) {
+      focusFirstField();
+    }
+  }, [isNew]);
 
   const initial = {};
   columns.forEach(c => {
@@ -135,8 +154,8 @@ export default function EntityForm({
     }
   }, [form.NIFCliente, fieldOptions.contactos, isNew, form.nombreContacto]);
 
-  function submit(e) {
-    e.preventDefault();
+  async function submit(e, keepOpen = false) {
+    if (e && e.preventDefault) e.preventDefault();
     if (readOnly) return;
     const payload = { ...form };
 
@@ -157,8 +176,8 @@ export default function EntityForm({
 
       if (v === "") payload[k] = null;
       else if (isDate && typeof v === "string") {
-        // Convert date from YYYY-MM-DD to DD-MM-YYYY
-        if (v.length === 10 && v.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Convert date from YYYY-MM-DD to DD-MM-YYYY except for periodos
+        if (endpoint !== "periodos" && v.length === 10 && v.match(/^\d{4}-\d{2}-\d{2}$/)) {
           const [yyyy, mm, dd] = v.split('-');
           payload[k] = `${dd}-${mm}-${yyyy}`;
         }
@@ -190,7 +209,17 @@ export default function EntityForm({
       }
     });
 
-    onSave(payload);
+    try {
+      if (onSave) {
+        await onSave(payload, keepOpen);
+        if (keepOpen) {
+          setForm(initial);
+          focusFirstField();
+        }
+      }
+    } catch (err) {
+      // API error handled by parent component alerts
+    }
   }
 
   // Group columns by row if specified
@@ -203,7 +232,7 @@ export default function EntityForm({
   const sortedRowKeys = Object.keys(rowsMap).sort((a, b) => Number(a) - Number(b));
 
   return (
-    <form onSubmit={submit}>
+    <form ref={formRef} onSubmit={submit}>
       <div className="form-grid-custom">
         {sortedRowKeys.map(rKey => {
           const rowFields = rowsMap[rKey];
@@ -385,14 +414,27 @@ export default function EntityForm({
           </button>
         )}
         {!readOnly && (
-          <button
-            type="submit"
-            className="primary"
-            disabled={endpoint === "sesiones" && item.facturado === true}
-            title={endpoint === "sesiones" && item.facturado === true ? "No se puede editar una sesión facturada" : ""}
-          >
-            {isNew ? "Crear" : "Guardar"}
-          </button>
+          <>
+            {isNew && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={(e) => submit(e, true)}
+                title="Guardar este registro, limpiar el formulario y crear otro"
+                style={{ background: "#475569", color: "white" }}
+              >
+                Guardar y crear otro
+              </button>
+            )}
+            <button
+              type="submit"
+              className="primary"
+              disabled={endpoint === "sesiones" && item.facturado === true}
+              title={endpoint === "sesiones" && item.facturado === true ? "No se puede editar una sesión facturada" : ""}
+            >
+              {isNew ? "Guardar y cerrar" : "Guardar"}
+            </button>
+          </>
         )}
       </div>
     </form>
