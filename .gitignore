@@ -3,3 +3,4 @@
 /backend_python/.env
 /TODO
 *.tf
+/backend_python/serviceAccountKey.json
