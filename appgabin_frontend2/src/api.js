@@ -150,6 +150,22 @@ const API = {
     const res = await this._fetchWithAuth(`${this.base}/empresas/me`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
+  },
+
+  async fetchMetadatos() {
+    const res = await this._fetchWithAuth(`${this.base}/metadatos/`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async updateMetadatos(payload) {
+    const res = await this._fetchWithAuth(`${this.base}/metadatos/`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
   }
 };
 

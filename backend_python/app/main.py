@@ -5,7 +5,7 @@ import os
 import firebase_admin
 from firebase_admin import credentials
 from .database import init_db
-from .routers import contactos, productos, periodos, facturas, sesiones, stats, gastos, empresas
+from .routers import contactos, productos, periodos, facturas, sesiones, stats, gastos, empresas, metadatos
 
 app = FastAPI(title="AppGabinete API", version="1.0.0")
 
@@ -37,6 +37,7 @@ app.include_router(facturas.router, prefix="/api/facturas", tags=["facturas"])
 app.include_router(gastos.router, prefix="/api/gastos", tags=["gastos"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(empresas.router, prefix="/api/empresas", tags=["empresas"])
+app.include_router(metadatos.router, prefix="/api/metadatos", tags=["metadatos"])
 
 @app.get("/ping")
 def ping():

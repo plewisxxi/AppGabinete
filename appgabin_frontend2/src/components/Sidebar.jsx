@@ -17,8 +17,8 @@ export default function Sidebar({ current, onChange }) {
         { id: "sesiones", label: "Sesiones", icon: "📅" },
         { id: "facturas", label: "Facturas", icon: "📄" },
         { id: "gastos", label: "Gastos", icon: "💸" },
-        { id: "productos", label: "Productos", icon: "📦" },
-        { id: "periodos", label: "Periodos", icon: "⏳" },
+        { id: "separator2", type: "separator" },
+        { id: "administracion", label: "Administración", icon: "⚙️" },
     ];
 
     useEffect(() => {

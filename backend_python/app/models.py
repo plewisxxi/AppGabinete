@@ -112,6 +112,7 @@ class Metadatos(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     empresa_id: Optional[int] = Field(default=None)
     serie: Optional[str] = Field(default="F")
+    serieRectificativa: Optional[str] = Field(default="R")
     ultimoNumeroFactura: int = Field(default=0)
     created_at: Optional[datetime] = Field(default=None)
 

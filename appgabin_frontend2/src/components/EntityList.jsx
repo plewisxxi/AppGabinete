@@ -1186,7 +1186,7 @@ export default function EntityList({ endpoint }) {
                   </div>
                 ) : (
                   <div className="table-container">
-                    <table className={`table card-table ${endpoint === 'contactos' ? 'contactos-table' : ''}`}>
+                    <table className={`table card-table ${endpoint === 'contactos' ? 'contactos-table' : ''} ${endpoint === 'facturas' ? 'facturas-table' : ''} ${endpoint === 'sesiones' ? 'sesiones-table' : ''}`}>
                       <thead>
                         <tr>
                           {(!isMobile || endpoint !== "contactos") && (endpoint === "sesiones" || endpoint === "gastos" || endpoint === "contactos") && (
@@ -1266,7 +1266,7 @@ export default function EntityList({ endpoint }) {
                                           <span className="summary-value"><strong>{it.numeroFactura || "N/A"}</strong></span>
                                         </div>
                                         <div className="billing-summary-item">
-                                          <span className="summary-label">Fecha:</span>
+                                          <span className="summary-label">Pago:</span>
                                           <span className="summary-value"><strong>{it.fechaPago || "N/A"}</strong></span>
                                         </div>
                                         <div className="billing-summary-item">
@@ -1346,17 +1346,8 @@ export default function EntityList({ endpoint }) {
                                     <span className="factura-concept-text">{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
                                   </div>
                                   
-                                  {/* Line 4: Info extra */}
-                                  <div className="factura-line factura-line-4">
-                                    <div className="factura-extra-info">
-                                       <span className="factura-trimestre">{it.trimestre || "—"}</span>
-                                       <span className="info-separator">•</span>
-                                       <span className="factura-periodo">{it.IDPeriodo || "—"}</span>
-                                       {(it.esRectificativa === true || it.esRectificativa === 'true') && <span className="rectificativa-tag">RECTIFICATIVA</span>}
-                                    </div>
-                                  </div>
-      
                                   <div className="factura-actions">
+
                                     <ActionMenu
                                       onEdit={() => startEdit(it)}
                                       onDelete={() => remove(it)}

@@ -6,6 +6,7 @@ import Dashboard from "./components/Dashboard";
 import Resumen from "./components/Resumen";
 import Login from "./components/Login";
 import Unauthorized from "./components/Unauthorized";
+import Administracion from "./components/Administracion";
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -49,6 +50,8 @@ function AppContent() {
             <Dashboard />
           ) : entity === "resumen" ? (
             <Resumen />
+          ) : entity === "administracion" ? (
+            <Administracion />
           ) : (
             <div className="card">
               <EntityList endpoint={entity} />
