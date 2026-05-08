@@ -366,14 +366,16 @@ export default function EntityList({ endpoint }) {
   const [filterInputs, setFilterInputs] = useState({});
   const [globalInput, setGlobalInput] = useState("");
 
+  const initializedEndpointRef = useRef(null);
+
   useEffect(() => {
     setItems([]);
     setColumns([]);
     setError(null);
     setEditing(null);
     setViewing(null);
+    setExternalViewing(null);
     setShowNewWithOptions(false);
-    setPage(1);
     setPage(1);
     setTotalItems(0);
     setSelectedIds(new Set());
@@ -381,23 +383,61 @@ export default function EntityList({ endpoint }) {
     setCloneTargetPeriod("");
     setFilters({});
     setFilterInputs({});
-    setFilters({});
-    setFilterInputs({});
     setGlobalQ("");
     setGlobalInput("");
-    setFilterYear(new Date().getFullYear().toString());
-    setFilterPeriod("");
-    setFilterFacturado('all');
-    setFilterPagado('all');
-    setSortField(null);
-    setSortDir("asc");
-    setShowNewWithOptions(false);
-    setEditing(null);
-    setViewing(null);
-    setExternalViewing(null);
+
+    // Look for previous list state in session
+    const sessKey = `appgabin_state_${endpoint}`;
+    const storedStateStr = sessionStorage.getItem(sessKey);
+
+    if (storedStateStr) {
+      try {
+        const st = JSON.parse(storedStateStr);
+        setFilterYear(st.filterYear || new Date().getFullYear().toString());
+        setFilterPeriod(st.filterPeriod || "");
+        setFilterFacturado(st.filterFacturado || 'all');
+        setFilterPagado(st.filterPagado || 'all');
+        setSortField(st.sortField || null);
+        setSortDir(st.sortDir || "asc");
+      } catch (e) {
+        // Fallback on error
+      }
+    } else {
+      // First time opening this endpoint in this session
+      const currentYear = new Date().getFullYear().toString();
+      const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`;
+      
+      let defaultSort = null;
+      if (endpoint === 'sesiones') defaultSort = 'idSesion';
+      if (endpoint === 'facturas') defaultSort = 'numeroFactura';
+      if (endpoint === 'gastos') defaultSort = 'id';
+
+      // We only apply the Quarter filter specifically to these endpoints
+      const isDateFiltered = ['sesiones', 'facturas', 'gastos'].includes(endpoint);
+
+      setFilterYear(currentYear);
+      setFilterPeriod(isDateFiltered ? currentQuarter : "");
+      setFilterFacturado('all');
+      setFilterPagado('all');
+      setSortField(defaultSort);
+      setSortDir("asc");
+    }
+
+    initializedEndpointRef.current = endpoint; // Mark initialized
+
+    // load is triggered by the dependency array of the OTHER useEffect
+    // But since state sets here are batched, we handle it organically.
+    // However, the original code had load() here explicitly:
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
+
+  // Persist state to session storage whenever it changes (only after init)
+  useEffect(() => {
+    if (!endpoint || initializedEndpointRef.current !== endpoint) return;
+    const st = { filterYear, filterPeriod, filterFacturado, filterPagado, sortField, sortDir };
+    sessionStorage.setItem(`appgabin_state_${endpoint}`, JSON.stringify(st));
+  }, [filterYear, filterPeriod, filterFacturado, filterPagado, sortField, sortDir, endpoint]);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, sortField, sortDir, filters, globalQ, filterYear, filterPeriod, filterFacturado, filterPagado]);
 
@@ -1246,17 +1286,17 @@ export default function EntityList({ endpoint }) {
                                   
                                   {/* Line 2: Nombre contacto (Left, Bold) */}
                                   <div className="session-line session-line-2">
-                                    <span className="session-contact-name"><strong>{it.nombreContacto || "N/A"}</strong></span>
+                                    <span className="session-contact-name" style={{ fontSize: '0.85em' }}><strong>{it.nombreContacto || "<Sin Contacto>"}</strong></span>
                                   </div>
                                   
                                   {/* Line 3: Concepto (Left, Uppercase) */}
                                   <div className="session-line session-line-3">
-                                    <span className="session-concept-text">{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
+                                    <span className="session-concept-text" style={{ fontSize: '0.85em' }}>{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
                                   </div>
                                   
                                   {/* Billing Info — only when invoiced */}
                                   {it.facturado && (
-                                    <div className="session-billing-section-modern">
+                                    <div className="session-billing-section-modern" style={{ fontSize: '0.85em' }}>
                                       <div className="session-line billing-header-blue">
                                         DATOS DE FACTURACIÓN
                                       </div>
@@ -1354,6 +1394,66 @@ export default function EntityList({ endpoint }) {
                                       onView={() => startView(it)}
                                       canEdit={false}
                                       canDelete={false}
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (isMobile && endpoint === 'gastos') {
+                            const pendienteVal = it.pendiente != null ? parseFloat(it.pendiente) : 0;
+                            return (
+                              <tr key={idx} className={`session-card-mobile-final ${isSelected ? "selected-row" : ""}`}>
+                                <td className="session-compact-td-final">
+                                  {/* Line 1: Fecha (Left), Total (Right) */}
+                                  <div className="session-line session-line-1">
+                                    <span className="session-date"><strong>{it.fechaEmision || "—"}</strong></span>
+                                    <span className="session-total-main" style={{ color: pendienteVal <= 0 ? '#059669' : '#dc2626', marginLeft: 'auto' }}>
+                                      <strong>{renderCell(it.total)}€</strong>
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Line 2: Concepto (Left, Uppercase) */}
+                                  <div className="session-line session-line-3" style={{ marginTop: '4px' }}>
+                                    <span className="session-concept-text" style={{ fontSize: '0.85em' }}>{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
+                                  </div>
+
+                                  {/* Line 3: Nombre contacto (Left, Bold) */}
+                                  <div className="session-line session-line-2">
+                                    <span className="session-contact-name" style={{ fontSize: '0.85em' }}><strong>{it.contacto || "<Sin Contacto>"}</strong></span>
+                                  </div>
+                                  
+                                  {/* Line 4: Billing Info */}
+                                  <div className="session-billing-section-modern" style={{ fontSize: '0.85em' }}>
+                                    <div className="session-line billing-header-blue">
+                                      DATOS DE PAGO
+                                    </div>
+                                    <div className="billing-details-summary-box">
+                                      <div className="billing-summary-item">
+                                        <span className="summary-label">Pago:</span>
+                                        <span className="summary-value"><strong>{it.fechaPago || "Pendiente"}</strong></span>
+                                      </div>
+                                      <div className="billing-summary-item">
+                                        <span className="summary-label">Pagado:</span>
+                                        <span className="summary-value"><strong>{renderCell(it.totalPagado)}€</strong></span>
+                                      </div>
+                                      <div className="billing-summary-item">
+                                        <span className="summary-label">Pdte:</span>
+                                        <span className="summary-value" style={{color: pendienteVal > 0 ? '#dc2626' : '#059669'}}>
+                                          <strong>{renderCell(it.pendiente)}€</strong>
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="session-actions-final">
+                                    <ActionMenu
+                                      onEdit={() => startEdit(it)}
+                                      onDelete={() => remove(it)}
+                                      onView={() => startView(it)}
+                                      canEdit={true}
+                                      canDelete={true}
                                     />
                                   </div>
                                 </td>

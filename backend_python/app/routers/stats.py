@@ -236,14 +236,14 @@ def get_resumen(
     )
     f_row = db.exec(stmt_facturas).first()
 
-    # 3. Gastos by fechaPago
+    # 3. Gastos by fechaEmision
     Gasto = models.Gasto
     stmt_gastos = select(
         func.count(Gasto.id).label("count"),
         func.coalesce(func.sum(Gasto.total), 0).label("sum")
     ).where(
-        Gasto.fechaPago >= s_date,
-        Gasto.fechaPago <= e_date,
+        Gasto.fechaEmision >= s_date,
+        Gasto.fechaEmision <= e_date,
         Gasto.empresa_id.in_(user_empresas)
     )
     g_row = db.exec(stmt_gastos).first()

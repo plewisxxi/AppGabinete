@@ -3,8 +3,11 @@ import { useAuth } from "../AuthContext";
 import API from "../api";
 
 export default function Sidebar({ current, onChange }) {
-    // Start collapsed on mobile
-    const [collapsed, setCollapsed] = useState(typeof window !== "undefined" ? window.innerWidth <= 768 : false);
+    // Desktop mostly toggle state
+    const [collapsed, setCollapsed] = useState(false);
+    // Mobile Drawer state
+    const [mobileOpen, setMobileOpen] = useState(false);
+    
     const [empresaNombre, setEmpresaNombre] = useState(null);
     const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth <= 768 : false);
     const { user, logout, idToken } = useAuth();
@@ -22,7 +25,7 @@ export default function Sidebar({ current, onChange }) {
     ];
 
     useEffect(() => {
-        // Load empresa name for the logged-in user (first assignment)
+        // Load empresa name for the logged-in user
         async function loadEmpresa() {
             try {
                 const empresas = await API.fetchMyEmpresas();
@@ -35,12 +38,14 @@ export default function Sidebar({ current, onChange }) {
         }
         loadEmpresa();
 
-        // Track mobile layout so we can show logout in the nav on small screens
         function updateIsMobile() {
             const mobile = window.innerWidth <= 768;
             setIsMobile(mobile);
-            // On mobile, we only want to keep it collapsed and open on demand
-            if (mobile) setCollapsed(true);
+            if (mobile) {
+                setCollapsed(false); // we don't use collapsed prop on mobile it's purely Drawer based
+            } else {
+                setMobileOpen(false); // close drawer if resize to desktop
+            }
         }
 
         updateIsMobile();
@@ -50,74 +55,89 @@ export default function Sidebar({ current, onChange }) {
 
     const handleNavClick = (id) => {
         onChange(id);
-        if (isMobile) setCollapsed(true);
+        if (isMobile) {
+            setMobileOpen(false);
+        }
     };
 
     return (
-        <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-            <div className="sidebar-header">
-                {(isMobile || !collapsed) && (
-                    <div className="header-content">
-                        <h2>Gabinete</h2>
-                        {!collapsed && empresaNombre && <span className="company-name">{empresaNombre}</span>}
-                    </div>
-                )}
-                <button className="toggle-btn" onClick={() => setCollapsed(!collapsed)}>
-                    {collapsed ? "☰" : "✕"}
-                </button>
-            </div>
-
-            <nav className="sidebar-nav">
-                {menuItems.map((item, idx) => {
-                    if (item.type === "separator") {
-                        return <div key={`sep-${idx}`} style={{ height: "1px", background: "var(--border)", margin: "8px 12px" }} />;
-                    }
-                    return (
-                        <button
-                            key={item.id}
-                            className={`nav-item ${current === item.id ? "active" : ""}`}
-                            onClick={() => handleNavClick(item.id)}
-                            title={collapsed && !isMobile ? item.label : ""}
-                        >
-                            <span className="icon">{item.icon}</span>
-                            {(!collapsed || isMobile) && <span className="label">{item.label}</span>}
-                        </button>
-                    );
-                })}
-
-                {isMobile && user && (
-                    <button
-                        className="nav-item logout"
-                        onClick={logout}
-                        title="Cerrar Sesión"
-                    >
-                        <span className="icon" aria-hidden="true">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M13 3H11V13H13V3Z" fill="currentColor"/>
-                                <path d="M5.636 6.343C3.805 8.174 3 10.518 3 13C3 17.9706 6.52944 22.0391 11 22.8255V20.7804C7.22619 20.0915 4.5 16.945 4.5 13C4.5 10.5523 5.43922 8.31466 6.90983 6.84382L5.636 6.343Z" fill="currentColor"/>
-                                <path d="M18.364 6.343L17.09 6.84382C18.5608 8.31466 19.5 10.5523 19.5 13C19.5 16.945 16.7738 20.0915 13 20.7804V22.8255C17.4706 22.0391 21 17.9706 21 13C21 10.518 20.195 8.174 18.364 6.343Z" fill="currentColor"/>
-                            </svg>
-                        </span>
-                        {!collapsed && <span className="label">Cerrar Sesión</span>}
+        <>
+            {isMobile && (
+                <div className="mobile-topbar">
+                    <button className="mobile-menu-btn" onClick={() => setMobileOpen(true)} title="Menú">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 6H21V8H3V6ZM3 11H21V13H3V11ZM3 16H21V18H3V16Z" fill="currentColor"/>
+                        </svg>
                     </button>
-                )}
-            </nav>
-
-            <div className="sidebar-footer">
-                {!isMobile && user && (
-                    <div className="user-info">
-                        {!collapsed && <small>Hola, {user.displayName}</small>}
-                        <button 
-                            onClick={logout} 
-                            className="logout-btn"
-                            title={idToken ? `[DEBUG] ID Token: ${idToken.substring(0, 50)}...` : "Cerrar Sesión"}
-                        >
-                            Cerrar Sesión
-                        </button>
+                    <div className="mobile-topbar-title">
+                        <h2>Gabinete</h2>
+                        {empresaNombre && <span>{empresaNombre}</span>}
                     </div>
-                )}
-                {!collapsed && !isMobile && <small>© 2026</small>}
+                </div>
+            )}
+
+            {isMobile && mobileOpen && (
+                <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)}></div>
+            )}
+
+            <div className={`sidebar ${!isMobile && collapsed ? "collapsed" : ""} ${isMobile && mobileOpen ? "mobile-open" : ""}`}>
+                <div className="sidebar-header">
+                    {/* Visual header logic: when in desktop-collapsed we completely hide header text optionally.
+                        Here we show it if not collapsed or taking up space. */}
+                    {(!collapsed || isMobile) && (
+                        <div className="header-content">
+                            <h2>Gabinete</h2>
+                            {empresaNombre && <span className="company-name">{empresaNombre}</span>}
+                        </div>
+                    )}
+                    {!isMobile && (
+                        <button className="toggle-btn" onClick={() => setCollapsed(!collapsed)}>
+                            {collapsed ? "☰" : "✕"}
+                        </button>
+                    )}
+                    {isMobile && (
+                        <button className="toggle-btn close-mobile" onClick={() => setMobileOpen(false)}>
+                            ✕
+                        </button>
+                    )}
+                </div>
+
+                <nav className="sidebar-nav">
+                    {menuItems.map((item, idx) => {
+                        if (item.type === "separator") {
+                            return <div key={`sep-${idx}`} className="nav-separator" />;
+                        }
+                        return (
+                            <button
+                                key={item.id}
+                                className={`nav-item ${current === item.id ? "active" : ""}`}
+                                onClick={() => handleNavClick(item.id)}
+                                title={collapsed && !isMobile ? item.label : ""}
+                            >
+                                <span className="icon">{item.icon}</span>
+                                {(!collapsed || isMobile) && <span className="label">{item.label}</span>}
+                            </button>
+                        );
+                    })}
+                </nav>
+
+                <div className="sidebar-footer">
+                    {user ? (
+                        <div className="user-info">
+                            {(!collapsed || isMobile) && <small>Hola, {user.displayName}</small>}
+                            
+                            <button 
+                                onClick={logout} 
+                                className="logout-btn"
+                                title={idToken ? `[DEBUG] ID Token: ${idToken.substring(0, 50)}...` : "Cerrar Sesión"}
+                            >
+                                {(!collapsed || isMobile) ? "Cerrar Sesión" : "🚪"}
+                            </button>
+                        </div>
+                    ) : null}
+                    {!collapsed && !isMobile && <small className="copyright">© 2026</small>}
+                </div>
             </div>
-        </div>
+        </>
     );
 }
