@@ -36,6 +36,7 @@ export default function EntityList({ endpoint }) {
   const [selectedIds, setSelectedIds] = useState(new Set()); // Set of selected IDs
   const [showCloneModal, setShowCloneModal] = useState(false);
   const [cloneTargetPeriod, setCloneTargetPeriod] = useState("");
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [periodOptions, setPeriodOptions] = useState([]);
 
   // --- Memoria Feature State ---
@@ -61,7 +62,7 @@ export default function EntityList({ endpoint }) {
 
     try {
       setLoading(true);
-      
+
       const formatApiDate = (dateStr) => {
         const [y, m, d] = dateStr.split('-');
         return `${d}-${m}-${y}`;
@@ -73,7 +74,7 @@ export default function EntityList({ endpoint }) {
         end_date: formatApiDate(memoriaEndDate),
         page_size: 1000
       };
-      
+
       const resSesiones = await API.fetchList('sesiones', 1, 1000, params);
       const facturas = resSesiones.data || [];
 
@@ -99,12 +100,12 @@ export default function EntityList({ endpoint }) {
       const today = new Date();
       const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
       const dateStr = `${today.getDate()} de ${meses[today.getMonth()]} de ${today.getFullYear()}`;
-      
+
       html = html.replace(/\{\{fecha_dia\}\}\s*de\s*Julio\s*de\s*2025/ig, dateStr);
       html = html.replace(/\{\{fecha_dia\}\}/g, today.getDate());
 
       const parser = new DOMParser();
-      
+
       // Grouping based on Producto
       const facturasRP = facturas.filter(f => (f.IDProducto && f.IDProducto.includes('RP')) || (f.concepto && f.concepto.toLowerCase().includes('pedagogica')));
       const facturasRLH = facturas.filter(f => (f.IDProducto && f.IDProducto.includes('RLH')) || (f.concepto && f.concepto.toLowerCase().includes('lenguaje')));
@@ -114,7 +115,7 @@ export default function EntityList({ endpoint }) {
         if (!dateStr) return '';
         const parts = dateStr.split('-');
         if (parts.length === 3) {
-           return `${meses[parseInt(parts[1], 10) - 1]} ${parts[2]}`;
+          return `${meses[parseInt(parts[1], 10) - 1]} ${parts[2]}`;
         }
         return dateStr;
       };
@@ -146,7 +147,7 @@ export default function EntityList({ endpoint }) {
       const hasPEAC = processCategory('PEAC', facturasPEAC);
 
       const finalDoc = parser.parseFromString(finalHtml, 'text/html');
-      
+
       // Fix page breaks
       const hrs = Array.from(finalDoc.querySelectorAll('hr'));
       hrs.forEach(hr => {
@@ -154,7 +155,7 @@ export default function EntityList({ endpoint }) {
           hr.outerHTML = '<div class="html2pdf__page-break"></div>';
         }
       });
-      
+
       const removeTableByMarker = (markerText) => {
         const ps = Array.from(finalDoc.querySelectorAll('p, span, td'));
         const markerP = ps.find(p => p.textContent && p.textContent.includes(markerText));
@@ -162,20 +163,20 @@ export default function EntityList({ endpoint }) {
           const table = markerP.closest('table');
           if (table) {
             let prev = table.previousElementSibling;
-            while(prev && prev.tagName !== 'TABLE' && !(prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break'))) {
-               const pprev = prev.previousElementSibling;
-               prev.remove();
-               prev = pprev;
+            while (prev && prev.tagName !== 'TABLE' && !(prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break'))) {
+              const pprev = prev.previousElementSibling;
+              prev.remove();
+              prev = pprev;
             }
             if (prev && prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break')) {
-               prev.remove();
+              prev.remove();
             }
 
             let next = table.nextElementSibling;
-            while(next && next.tagName !== 'TABLE' && !(next.tagName === 'DIV' && next.className.includes('html2pdf__page-break'))) {
-               const nnext = next.nextElementSibling;
-               next.remove();
-               next = nnext;
+            while (next && next.tagName !== 'TABLE' && !(next.tagName === 'DIV' && next.className.includes('html2pdf__page-break'))) {
+              const nnext = next.nextElementSibling;
+              next.remove();
+              next = nnext;
             }
 
             table.remove();
@@ -187,14 +188,15 @@ export default function EntityList({ endpoint }) {
       if (!hasRLH) removeTableByMarker('3.2');
       if (!hasPEAC) removeTableByMarker('3.3');
 
-      // Enforce nowrap on all table cells to preserve paragraph alignment
+      // Allow wrapping inside table cells so content fits the template width
       const tds = Array.from(finalDoc.querySelectorAll('td'));
       tds.forEach(td => {
-        td.style.whiteSpace = 'nowrap';
+        td.style.whiteSpace = 'normal';
+        td.style.wordBreak = 'break-word';
       });
 
       const fileName = `Memoria_2026_${contact.Nombre}`;
-      
+
       // Add print-specific CSS so the page breaks added for html2pdf work natively
       // AND force background colors/shading to appear in the PDF
       const cssPrint = `
@@ -202,6 +204,9 @@ export default function EntityList({ endpoint }) {
           @media print { 
             .html2pdf__page-break { page-break-before: always; }
             .no-print { display: none !important; }
+            /* simple page counter for Chromium-based browsers */
+            .page-number::after { content: counter(page); }
+            .page-footer { position: fixed; bottom: 0; width: 100%; text-align: right; }
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
@@ -225,15 +230,28 @@ export default function EntityList({ endpoint }) {
           }
         </style>
       `;
-      
+
       // Detectar si es dispositivo móvil para aplicar el fix de impresión
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const closeButtonHtml = isMobile ? `<button onclick="window.frameElement.remove()" class="close-overlay-btn no-print">Cerrar Vista Previa</button>` : '';
 
-      const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' + 
-                             finalDoc.head.innerHTML + cssPrint +
-                             '</head><body>' + closeButtonHtml + finalDoc.body.innerHTML + '</body></html>';
-      
+      // Ensure footer contains the page-number placeholders so CSS counter can fill them
+      try {
+        const footerSpan = Array.from(finalDoc.querySelectorAll('span')).find(s => s.textContent && s.textContent.replace(/\u00A0/g, ' ').includes('Página'));
+        if (footerSpan) {
+          const td = footerSpan.closest('td');
+          if (td) {
+            td.innerHTML = '<p class="c34"><span class="page-footer">P&aacute;gina <span class="page-number"></span> de <span class="page-total"></span></span></p>';
+          }
+        }
+      } catch (e) {
+        console.warn('Could not inject page-number footer placeholder', e);
+      }
+
+      const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' +
+        finalDoc.head.innerHTML + cssPrint +
+        '</head><body>' + closeButtonHtml + finalDoc.body.innerHTML + '</body></html>';
+
       // Create iframe. On mobile, visible/fullscreen logic. On desktop, hidden logic.
       const printIframe = document.createElement('iframe');
       if (isMobile) {
@@ -251,14 +269,14 @@ export default function EntityList({ endpoint }) {
       }
       printIframe.style.border = 'none';
       document.body.appendChild(printIframe);
-      
+
       printIframe.contentWindow.document.open();
       printIframe.contentWindow.document.write(fullHtmlString);
       printIframe.contentWindow.document.close();
-      
+
       // Wait for resources (fonts, images) to load before printing
       await new Promise(resolve => setTimeout(resolve, 800));
-      
+
       // Los navegadores usan el título de la página principal (no el iframe) 
       // para el nombre de archivo por defecto al "Guardar como PDF".
       const originalTitle = document.title;
@@ -274,7 +292,7 @@ export default function EntityList({ endpoint }) {
       };
 
       printIframe.contentWindow.addEventListener('afterprint', cleanupPrint);
-      
+
       printIframe.contentWindow.focus();
       try {
         printIframe.contentWindow.print();
@@ -282,7 +300,7 @@ export default function EntityList({ endpoint }) {
         console.warn("Error al abrir diálogo de impresión", err);
         cleanupPrint();
       }
-      
+
       setShowMemoriaModal(false);
       setSelectedIds(new Set());
     } catch (err) {
@@ -381,6 +399,7 @@ export default function EntityList({ endpoint }) {
     setSelectedIds(new Set());
     setShowCloneModal(false);
     setCloneTargetPeriod("");
+    setAllowDuplicates(false);
     setFilters({});
     setFilterInputs({});
     setGlobalQ("");
@@ -406,7 +425,7 @@ export default function EntityList({ endpoint }) {
       // First time opening this endpoint in this session
       const currentYear = new Date().getFullYear().toString();
       const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`;
-      
+
       let defaultSort = null;
       if (endpoint === 'sesiones') defaultSort = 'idSesion';
       if (endpoint === 'facturas') defaultSort = 'numeroFactura';
@@ -863,12 +882,15 @@ export default function EntityList({ endpoint }) {
     try {
       const res = await API.postAction(endpoint, "clone", {
         ids: ids,
-        target_period_id: cloneTargetPeriod
+        target_period_id: cloneTargetPeriod,
+        allow_duplicates: allowDuplicates
       });
-      alert(`Clonado completado.\nCreados: ${res.created}\nOmitidos (duplicados): ${res.skipped}`);
+      const skippedMsg = res.skipped > 0 ? `\nOmitidas (duplicadas): ${res.skipped}` : "";
+      alert(`Clonado completado.\nCreadas: ${res.created}${skippedMsg}`);
       setShowCloneModal(false);
       setCloningItem(null);
       setSelectedIds(new Set());
+      setAllowDuplicates(false);
       load();
     } catch (e) {
       alert("Error clonando: " + e.message);
@@ -1165,8 +1187,8 @@ export default function EntityList({ endpoint }) {
         )}
 
         {isMobile && (
-          <button 
-            className="primary" 
+          <button
+            className="primary"
             style={{ width: '100%', marginTop: isMobile ? '8px' : 'auto', padding: '14px' }}
             onClick={() => setShowMobileFilters(false)}
           >
@@ -1259,7 +1281,7 @@ export default function EntityList({ endpoint }) {
                         {items.map((it, idx) => {
                           const id = it[getIdKey(it)];
                           const isSelected = selectedIds.has(id);
-                          
+
                           // Long press logic for mobile
                           let timer;
                           const handleTouchStart = () => {
@@ -1283,17 +1305,17 @@ export default function EntityList({ endpoint }) {
                                     <span className="session-total-main" style={{ color: it.facturado ? '#059669' : '#dc2626' }}><strong>{renderCell(it.total)}€</strong></span>
                                     <span className="session-id">ID: <strong>{it.idSesion}</strong></span>
                                   </div>
-                                  
+
                                   {/* Line 2: Nombre contacto (Left, Bold) */}
                                   <div className="session-line session-line-2">
                                     <span className="session-contact-name" style={{ fontSize: '0.85em' }}><strong>{it.nombreContacto || "<Sin Contacto>"}</strong></span>
                                   </div>
-                                  
+
                                   {/* Line 3: Concepto (Left, Uppercase) */}
                                   <div className="session-line session-line-3">
                                     <span className="session-concept-text" style={{ fontSize: '0.85em' }}>{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
                                   </div>
-                                  
+
                                   {/* Billing Info — only when invoiced */}
                                   {it.facturado && (
                                     <div className="session-billing-section-modern" style={{ fontSize: '0.85em' }}>
@@ -1334,8 +1356,8 @@ export default function EntityList({ endpoint }) {
 
                           if (isMobile && endpoint === 'contactos') {
                             return (
-                              <tr 
-                                key={idx} 
+                              <tr
+                                key={idx}
                                 className={`selected-row-mobile ${isSelected ? "selected-row" : ""}`}
                                 onPointerDown={handleTouchStart}
                                 onPointerUp={handleTouchEnd}
@@ -1375,17 +1397,17 @@ export default function EntityList({ endpoint }) {
                                     <span className="factura-total-main"><strong>{renderCell(it.total)}€</strong></span>
                                     <span className="factura-date"><strong>{renderCell(it.fechaEmision)}</strong></span>
                                   </div>
-                                  
+
                                   {/* Line 2: Contacto (Full Width) */}
                                   <div className="factura-line factura-line-2">
                                     <span className="factura-contact-name"><strong>{it.nombreContacto || "—"}</strong></span>
                                   </div>
-                                  
+
                                   {/* Line 3: Concepto (Full Width) */}
                                   <div className="factura-line factura-line-3">
                                     <span className="factura-concept-text">{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
                                   </div>
-                                  
+
                                   <div className="factura-actions">
 
                                     <ActionMenu
@@ -1413,7 +1435,7 @@ export default function EntityList({ endpoint }) {
                                       <strong>{renderCell(it.total)}€</strong>
                                     </span>
                                   </div>
-                                  
+
                                   {/* Line 2: Concepto (Left, Uppercase) */}
                                   <div className="session-line session-line-3" style={{ marginTop: '4px' }}>
                                     <span className="session-concept-text" style={{ fontSize: '0.85em' }}>{it.concepto ? it.concepto.toUpperCase() : "SIN CONCEPTO"}</span>
@@ -1423,7 +1445,7 @@ export default function EntityList({ endpoint }) {
                                   <div className="session-line session-line-2">
                                     <span className="session-contact-name" style={{ fontSize: '0.85em' }}><strong>{it.contacto || "<Sin Contacto>"}</strong></span>
                                   </div>
-                                  
+
                                   {/* Line 4: Billing Info */}
                                   <div className="session-billing-section-modern" style={{ fontSize: '0.85em' }}>
                                     <div className="session-line billing-header-blue">
@@ -1440,7 +1462,7 @@ export default function EntityList({ endpoint }) {
                                       </div>
                                       <div className="billing-summary-item">
                                         <span className="summary-label">Pdte:</span>
-                                        <span className="summary-value" style={{color: pendienteVal > 0 ? '#dc2626' : '#059669'}}>
+                                        <span className="summary-value" style={{ color: pendienteVal > 0 ? '#dc2626' : '#059669' }}>
                                           <strong>{renderCell(it.pendiente)}€</strong>
                                         </span>
                                       </div>
@@ -1563,7 +1585,7 @@ export default function EntityList({ endpoint }) {
         viewing && (
           <div className="modal-backdrop" onClick={() => setViewing(null)}>
             <div className="modal" onClick={e => e.stopPropagation()}>
-              <h3>{getTitleValue(viewing, columns, endpoint)}</h3>
+              <h3 style={{ fontSize: '20px', margin: '0 0 12px 0' }}>{getTitleValue(viewing, columns, endpoint)}</h3>
               <EntityForm
                 columns={modelsMap[endpoint] || columns || Object.keys(viewing)}
                 item={viewing}
@@ -1612,20 +1634,20 @@ export default function EntityList({ endpoint }) {
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
                 <label>Fecha Desde:</label>
-                <input 
-                  type="date" 
-                  value={memoriaStartDate} 
-                  onChange={e => setMemoriaStartDate(e.target.value)} 
-                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }} 
+                <input
+                  type="date"
+                  value={memoriaStartDate}
+                  onChange={e => setMemoriaStartDate(e.target.value)}
+                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
                 <label>Fecha Hasta:</label>
-                <input 
-                  type="date" 
-                  value={memoriaEndDate} 
-                  onChange={e => setMemoriaEndDate(e.target.value)} 
-                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }} 
+                <input
+                  type="date"
+                  value={memoriaEndDate}
+                  onChange={e => setMemoriaEndDate(e.target.value)}
+                  style={{ width: "100%", padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
                 />
               </div>
 
@@ -1642,9 +1664,9 @@ export default function EntityList({ endpoint }) {
       {
         showCloneModal && (
           <div className="modal-backdrop" onClick={() => setShowCloneModal(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 420 }}>
               <h3>Clonar Sesiones</h3>
-              <p>Se clonarán {selectedIds.size} sesiones seleccionadas.</p>
+              <p>Se clonarán {cloningItem ? 1 : selectedIds.size} sesiones al periodo destino.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
                 <label>Periodo Destino:</label>
@@ -1662,8 +1684,23 @@ export default function EntityList({ endpoint }) {
                 </select>
               </div>
 
-              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => { setShowCloneModal(false); setCloningItem(null); }}>Cancelar</button>
+              <div style={{ marginTop: 16, padding: "10px 12px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 6 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={allowDuplicates}
+                    onChange={e => setAllowDuplicates(e.target.checked)}
+                    style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 13 }}>
+                    <strong>Permitir duplicados</strong><br />
+                    <span style={{ color: "#92400e", fontSize: 12 }}>Si está marcado, se crearán sesiones aunque ya exista una con el mismo Contacto, Periodo y Producto.</span>
+                  </span>
+                </label>
+              </div>
+
+              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => { setShowCloneModal(false); setCloningItem(null); setAllowDuplicates(false); }}>Cancelar</button>
                 <button className="primary" onClick={confirmClone} disabled={!cloneTargetPeriod}>Confirmar</button>
               </div>
             </div>

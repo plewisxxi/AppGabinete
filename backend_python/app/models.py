@@ -102,7 +102,8 @@ class FacturaBase(SQLModel):
     metodoPago: Optional[str] = Field(default=None)
     etiquetas: Optional[str] = Field(default=None)
     trimestre: Optional[str] = Field(default=None)
-    IDPeriodo: Optional[str] 
+    IDPeriodo: Optional[str]
+    sesion_id: Optional[int] = Field(default=None)
 
 class Factura(FacturaBase, table=True):
     pass

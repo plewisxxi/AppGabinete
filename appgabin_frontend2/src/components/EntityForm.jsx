@@ -253,8 +253,8 @@ export default function EntityForm({
                 if (type === 'title') {
                   const isBillingSection = endpoint === "sesiones" && label === "Datos Facturación" && form.facturado === "FACTURADO" && form.numeroFactura;
                   return (
-                    <div key={cIdx} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px 0' }}>
-                      <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: 'var(--primary-1)' }}>{label}</h4>
+                    <div key={cIdx} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '6px 0 4px 0' }}>
+                      <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'var(--primary-1)' }}>{label}</h4>
                       {isBillingSection && (
                         <button
                           type="button"

@@ -232,6 +232,26 @@ def create_sesion(payload: Dict[str, Any] = Body(...), user_empresas: List[int] 
                 payload["base"] = prod.base
                 payload["total"] = prod.base
 
+        # Extract and remove allow_duplicates flag from payload
+        allow_duplicates = payload.pop("allow_duplicates", False)
+        if isinstance(allow_duplicates, str):
+            allow_duplicates = allow_duplicates.lower() == "true"
+
+        # Check duplicate if not allowed
+        if not allow_duplicates:
+            stmt = select(Sesion).where(
+                Sesion.NIFCliente == payload.get("NIFCliente"),
+                Sesion.IDProducto == payload.get("IDProducto"),
+                Sesion.IDPeriodo == payload.get("IDPeriodo"),
+                Sesion.empresa_id == payload.get("empresa_id")
+            )
+            existing = s.exec(stmt).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Ya existe una sesión para este cliente, producto y periodo."
+                )
+
         obj = Sesion(**payload)
         s.add(obj)
         s.commit()
@@ -318,10 +338,15 @@ def report_summary_by_period(
 def clone_sesiones(payload: Dict[str, Any] = Body(...), user_empresas: List[int] = Depends(get_current_user)):
     """
     Clone selected sessions to a new period.
-    Payload: { "ids": [1, 2, ...], "target_period_id": "2025Q1" }
+    Payload: {
+        "ids": [1, 2, ...],
+        "target_period_id": "2025Q1",
+        "allow_duplicates": false   # Si true, se permiten duplicados (mismo Contacto+Periodo+Producto)
+    }
     """
     ids = payload.get("ids", [])
     target_period_id = payload.get("target_period_id")
+    allow_duplicates = payload.get("allow_duplicates", False)
 
     if not ids or not target_period_id:
         raise HTTPException(status_code=400, detail="Missing ids or target_period_id")
@@ -359,17 +384,19 @@ def clone_sesiones(payload: Dict[str, Any] = Body(...), user_empresas: List[int]
                 continue
 
             # Check duplicate: Same NIF, Product, and Target Period
-            stmt = select(Sesion).where(
-                Sesion.NIFCliente == source.NIFCliente,
-                Sesion.IDProducto == source.IDProducto,
-                Sesion.IDPeriodo == target_period_id,
-                Sesion.empresa_id.in_(user_empresas)
-            )
-            existing = s.exec(stmt).first()
+            # Only skip if allow_duplicates is False
+            if not allow_duplicates:
+                stmt = select(Sesion).where(
+                    Sesion.NIFCliente == source.NIFCliente,
+                    Sesion.IDProducto == source.IDProducto,
+                    Sesion.IDPeriodo == target_period_id,
+                    Sesion.empresa_id.in_(user_empresas)
+                )
+                existing = s.exec(stmt).first()
 
-            if existing:
-                skipped_count += 1
-                continue
+                if existing:
+                    skipped_count += 1
+                    continue
 
             # Get Product Description
             prod_desc = ""
@@ -476,23 +503,11 @@ def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...), user_empresas: 
             empresa_id = sesion.empresa_id
             meta_entry = ensure_meta_for_empresa(empresa_id)
 
-            # 2.1 Check if already invoiced (duplicate check in Factura) for this empresa
-            stmt = select(Factura).where(
-                Factura.NIFCliente == sesion.NIFCliente,
-                Factura.IDPeriodo == sesion.IDPeriodo,
-                Factura.IDProducto == sesion.IDProducto,
-                Factura.empresa_id == empresa_id,
-            )
-            existing = s.exec(stmt).first()
-            if existing:
-                skipped_count += 1
-                continue
-
-            # 2.2 Calculate Next Invoice Number (per empresa)
+            # 2.1 Calculate Next Invoice Number (per empresa)
             meta_entry["current_num"] += 1
             num_factura = f"{meta_entry['serie']}-{meta_entry['current_num']}"
 
-            # 2.3 Calculate Trimestre from Today
+            # 2.2 Calculate Trimestre from Today
             today = date.today()
             # Q1=1-3, Q2=4-6, Q3=7-9, Q4=10-12
             quarter = (today.month - 1) // 3 + 1
@@ -513,6 +528,7 @@ def facturar_sesiones(payload: List[Dict[str, Any]] = Body(...), user_empresas: 
                 IDPeriodo=sesion.IDPeriodo,
                 trimestre=trimestre_str,
                 empresa_id=empresa_id,
+                sesion_id=id_sesion,
             )
             s.add(new_factura)
 

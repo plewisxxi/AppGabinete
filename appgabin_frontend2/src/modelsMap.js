@@ -1,13 +1,13 @@
 export default {
   contactos: [
-    { field: "NIF", label: "NIF", width: "100px", widthList: "100px" },
-    { field: "Nombre", label: "Nombre", width: "250px", isTitle: true, widthList: "200px" },
-    { field: "Email", label: "Email", width: "250px", widthList: "auto" },
-    { field: "Telefono", label: "Telefono", width: "120px", widthList: "120px" },
-    { field: "Direccion", label: "Direccion", width: "250px", hideInList: true },
-    { field: "Poblacion", label: "Poblacion", width: "150px", hideInList: true },
-    { field: "codigoPostal", label: "CP", width: "80px", hideInList: true },
-    { field: "Pais", label: "Pais", width: "100px", hideInList: true }
+    { field: "NIF", label: "NIF", row: 1, width: "25%", widthList: "100px" },
+    { field: "Nombre", label: "Nombre", row: 1, width: "75%", isTitle: true, widthList: "240px" },
+    { field: "Email", label: "Email", row: 2, width: "70%", widthList: "240px" },
+    { field: "Telefono", label: "Telefono", row: 2, width: "30%", widthList: "120px" },
+    { field: "Direccion", label: "Direccion", row: 3, width: "45%", hideInList: true },
+    { field: "Poblacion", label: "Poblacion", row: 3, width: "25%", hideInList: true },
+    { field: "codigoPostal", label: "CP", row: 3, width: "12%", hideInList: true },
+    { field: "Pais", label: "Pais", row: 3, width: "18%", hideInList: true }
   ],
   productos: [
     { field: "IDProducto", label: "ID", row: 1, width: "30%", widthList: "100px" },
@@ -21,22 +21,22 @@ export default {
   ],
   sesiones: [
     { field: "idSesion", label: "ID", readOnly: true, row: 1, width: "12%", widthList: "58px" },
-    { field: "fechaOperacion", label: "Fecha", type: "date", row: 2, width: "15%", widthList: "95px" },
-    { field: "IDPeriodo", label: "Periodo", type: "select", source: "periodos", displayKey: "descPeriodo", valueKey: "IDPeriodo", row: 2, width: "0%", hideInList: true },
-    { field: "NIFCliente", label: "NIF", type: "datalist", source: "contactos", displayKey: "Nombre", valueKey: "NIF", row: 3, width: "0%", hideInList: true },
-    { field: "nombreContacto", label: "Contacto", readOnly: true, row: 3, width: "20%", widthList: "160px" },
-    { field: "IDProducto", label: "Producto", type: "select", source: "productos", displayKey: "descProducto", valueKey: "IDProducto", row: 4, width: "0%", hideInList: true },
-    { field: "concepto", label: "Concepto", row: 4, width: "85%" },
+    { field: "NIFCliente", label: "NIF", type: "datalist", source: "contactos", displayKey: "Nombre", valueKey: "NIF", row: 2, width: "20%", hideInList: true },
+    { field: "nombreContacto", label: "Contacto", readOnly: true, row: 2, width: "80%", widthList: "160px" },
+    { field: "fechaOperacion", label: "Fecha", type: "date", row: 3, width: "15%", widthList: "95px" },
+    { field: "IDPeriodo", label: "Periodo", type: "select", source: "periodos", displayKey: "descPeriodo", valueKey: "IDPeriodo", row: 3, width: "25%", hideInList: true },
+    { field: "IDProducto", label: "Producto", type: "select", source: "productos", displayKey: "descProducto", valueKey: "IDProducto", row: 3, width: "60%", hideInList: true },
+    { field: "concepto", label: "Concepto", row: 4, width: "100%" },
     { field: "base", label: "Base", type: "money", step: "1", row: 5, width: "25%" },
     { field: "total", label: "Total", type: "money", step: "1", row: 5, width: "25%" },
     { type: "separator", row: 6 },
     { type: "title", label: "Datos Facturación", row: 7 },
     { type: "separator", row: 8 },
-    { field: "facturado", label: "Facturado", readOnly: true, row: 9, width: "20%" },
-    { field: "numeroFactura", label: "Nº Factura", readOnly: true, row: 9, width: "20%" },
-    { field: "fechaPago", label: "Pago", readOnly: true, row: 9, width: "40%", widthList: "110px" },
-    { field: "totalPagado", label: "Total Pagado", readOnly: true, row: 10, width: "15%" },
-    { field: "pendiente", label: "Pend.", type: "money", readOnly: true, isComputed: true, row: 10, width: "15%", widthList: "70px" }
+    { field: "facturado", label: "Facturado", readOnly: true, row: 9, width: "20%", hideInForm: true },
+    { field: "numeroFactura", label: "Nº Factura", readOnly: true, row: 9, width: "15%", widthList: "110px" },
+    { field: "fechaPago", label: "Pago", readOnly: true, row: 9, width: "20%", widthList: "110px" },
+    { field: "totalPagado", label: "Total Pagado", readOnly: true, row: 9, width: "30%" },
+    { field: "pendiente", label: "Pendiente", type: "money", readOnly: true, isComputed: true, row: 9, width: "35%", widthList: "70px" }
   ],
   facturas: [
     { field: "numeroFactura", label: "Número", readOnly: true, row: 1, width: "26%", widthList: "90px" },
