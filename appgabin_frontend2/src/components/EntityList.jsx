@@ -78,8 +78,31 @@ export default function EntityList({ endpoint }) {
       const resSesiones = await API.fetchList('sesiones', 1, 1000, params);
       const facturas = resSesiones.data || [];
 
-      // Sort facturas chronologically
-      facturas.sort((a, b) => new Date(a.fechaOperacion || 0) - new Date(b.fechaOperacion || 0));
+      // Helper function to parse DD-MM-YYYY strings reliably
+      const parseDDMMYYYY = (dateStr) => {
+        if (!dateStr) return new Date(0); // Return epoch for null/undefined dates
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          // Date constructor expects year, month (0-indexed), day
+          return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+        // Fallback for potentially malformed dates, though ideally they should be DD-MM-YYYY
+        console.warn(`Unexpected date format encountered: ${dateStr}. Attempting generic Date parsing.`);
+        return new Date(dateStr);
+      };
+
+      // Sort facturas chronologically: first by fechaOperacion, then by fechaPago (both ascending)
+      facturas.sort((a, b) => {
+        const dateAOperacion = parseDDMMYYYY(a.fechaOperacion);
+        const dateBOperacion = parseDDMMYYYY(b.fechaOperacion);
+        const diffOperacion = dateAOperacion.getTime() - dateBOperacion.getTime();
+
+        if (diffOperacion !== 0) return diffOperacion;
+
+        const dateAPago = parseDDMMYYYY(a.fechaPago);
+        const dateBPago = parseDDMMYYYY(b.fechaPago);
+        return dateAPago.getTime() - dateBPago.getTime();
+      });
 
       const templateRes = await fetch('/plantilla_memoria/Plantilla_anvmemoriagabinete.html');
       if (!templateRes.ok) throw new Error("Plantilla HTML no encontrada en el servidor");
@@ -175,6 +198,8 @@ export default function EntityList({ endpoint }) {
             let next = table.nextElementSibling;
             while (next && next.tagName !== 'TABLE' && !(next.tagName === 'DIV' && next.className.includes('html2pdf__page-break'))) {
               const nnext = next.nextElementSibling;
+              // No pasarse a la siguiente subsección
+              if (next.textContent && (next.textContent.includes('3.1') || next.textContent.includes('3.2') || next.textContent.includes('3.3'))) break;
               next.remove();
               next = nnext;
             }
@@ -201,12 +226,26 @@ export default function EntityList({ endpoint }) {
       // AND force background colors/shading to appear in the PDF
       const cssPrint = `
         <style>
+          @page {
+            margin-bottom: 20mm;
+          }
           @media print { 
+            body { counter-reset: page; }
             .html2pdf__page-break { page-break-before: always; }
             .no-print { display: none !important; }
-            /* simple page counter for Chromium-based browsers */
-            .page-number::after { content: counter(page); }
-            .page-footer { position: fixed; bottom: 0; width: 100%; text-align: right; }
+            /* Pie de página fijo en la parte inferior derecha */
+            .page-footer { 
+              position: fixed; 
+              bottom: 5mm; 
+              right: 10mm; 
+              font-size: 10pt; 
+              color: #444;
+              z-index: 9999;
+            }
+            .page-number::after { 
+              counter-increment: page;
+              content: "Página " counter(page);
+            }
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
@@ -235,18 +274,11 @@ export default function EntityList({ endpoint }) {
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const closeButtonHtml = isMobile ? `<button onclick="window.frameElement.remove()" class="close-overlay-btn no-print">Cerrar Vista Previa</button>` : '';
 
-      // Ensure footer contains the page-number placeholders so CSS counter can fill them
-      try {
-        const footerSpan = Array.from(finalDoc.querySelectorAll('span')).find(s => s.textContent && s.textContent.replace(/\u00A0/g, ' ').includes('Página'));
-        if (footerSpan) {
-          const td = footerSpan.closest('td');
-          if (td) {
-            td.innerHTML = '<p class="c34"><span class="page-footer">P&aacute;gina <span class="page-number"></span> de <span class="page-total"></span></span></p>';
-          }
-        }
-      } catch (e) {
-        console.warn('Could not inject page-number footer placeholder', e);
-      }
+      // Inyectar el pie de página fijo al principio del body para asegurar el conteo correcto
+      const footerDiv = finalDoc.createElement('div');
+      footerDiv.className = 'page-footer';
+      footerDiv.innerHTML = '<span class="page-number"></span>';
+      finalDoc.body.insertBefore(footerDiv, finalDoc.body.firstChild);
 
       const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' +
         finalDoc.head.innerHTML + cssPrint +
