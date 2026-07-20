@@ -146,22 +146,32 @@ export default function EntityList({ endpoint }) {
       let finalHtml = html;
       const processCategory = (prefix, list) => {
         let total = 0;
-        for (let i = 1; i <= 12; i++) {
+        // Formateador con estándar español: punto para miles y coma para decimales, con agrupamiento explícito
+        const fmt = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true });
+
+        // Procesamos del 12 al 1 para evitar que el reemplazo de '_1' afecte a '_10', '_11' o '_12'
+        for (let i = 12; i >= 1; i--) {
           const f = list[i - 1];
+          const rePer = new RegExp(`\\{\\{${prefix}_PER_${i}\\}\\}`, 'g');
+          const reFr  = new RegExp(`\\{\\{${prefix}_FR_${i}\\}\\}`, 'g');
+          const reFec = new RegExp(`\\{\\{${prefix}_FEC_${i}\\}\\}`, 'g');
+          const reImp = new RegExp(`\\{\\{${prefix}_IMP_${i}\\}\\}`, 'g');
+
           if (f) {
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_PER_${i}}}`, 'g'), extractMonthYear(f.fechaOperacion));
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FR_${i}}}`, 'g'), f.numeroFactura || '');
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FEC_${i}}}`, 'g'), f.fechaPago || '');
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_IMP_${i}}}`, 'g'), (parseFloat(f.totalPagado) || 0).toFixed(2) + '€');
-            total += (parseFloat(f.totalPagado) || 0);
+            finalHtml = finalHtml.replace(rePer, extractMonthYear(f.fechaOperacion));
+            finalHtml = finalHtml.replace(reFr, f.numeroFactura || '');
+            finalHtml = finalHtml.replace(reFec, f.fechaPago || '');
+            const val = parseFloat(f.totalPagado) || 0;
+            finalHtml = finalHtml.replace(reImp, fmt.format(val) + '€');
+            total += val;
           } else {
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_PER_${i}}}`, 'g'), '&nbsp;');
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FR_${i}}}`, 'g'), '&nbsp;');
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_FEC_${i}}}`, 'g'), '&nbsp;');
-            finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_IMP_${i}}}`, 'g'), '&nbsp;');
+            finalHtml = finalHtml.replace(rePer, '&nbsp;');
+            finalHtml = finalHtml.replace(reFr, '&nbsp;');
+            finalHtml = finalHtml.replace(reFec, '&nbsp;');
+            finalHtml = finalHtml.replace(reImp, '&nbsp;');
           }
         }
-        finalHtml = finalHtml.replace(new RegExp(`{{${prefix}_TOTAL}}`, 'g'), total.toFixed(2) + '€');
+        finalHtml = finalHtml.replace(new RegExp(`\\{\\{${prefix}_TOTAL\\}\\}`, 'g'), fmt.format(total) + '€');
         return list.length > 0;
       };
 
@@ -183,7 +193,15 @@ export default function EntityList({ endpoint }) {
         const ps = Array.from(finalDoc.querySelectorAll('p, span, td'));
         const markerP = ps.find(p => p.textContent && p.textContent.includes(markerText));
         if (markerP) {
-          const table = markerP.closest('table');
+          let table = markerP.closest('table');
+          if (!table) {
+            // Si el marcador no está dentro de la tabla (ej. es el título superior)
+            let next = markerP.nextElementSibling;
+            while (next && next.tagName !== 'TABLE' && !next.classList?.contains('html2pdf__page-break')) {
+              next = next.nextElementSibling;
+            }
+            if (next?.tagName === 'TABLE') table = next;
+          }
           if (table) {
             let prev = table.previousElementSibling;
             while (prev && prev.tagName !== 'TABLE' && !(prev.tagName === 'DIV' && prev.className.includes('html2pdf__page-break'))) {
@@ -213,6 +231,86 @@ export default function EntityList({ endpoint }) {
       if (!hasRLH) removeTableByMarker('3.2');
       if (!hasPEAC) removeTableByMarker('3.3');
 
+      // Lógica de saltos de página para la sección 3
+      const activeEntries = [];
+      ['3.1', '3.2', '3.3'].forEach(m => {
+        const el = Array.from(finalDoc.querySelectorAll('p, span, td'))
+          .find(node => node.textContent && node.textContent.includes(m));
+        if (!el) return;
+        const titleP = el.tagName === 'P' ? el : el.closest('p');
+        let tbl = el.closest('table');
+        if (!tbl) {
+          let next = el.nextElementSibling;
+          while (next && next.tagName !== 'TABLE' && !next.classList?.contains('html2pdf__page-break')) {
+            next = next.nextElementSibling;
+          }
+          if (next?.tagName === 'TABLE') tbl = next;
+        }
+        if (tbl) activeEntries.push({ marker: m, titleEl: titleP, table: tbl });
+      });
+
+      const activeTables = activeEntries.map(e => e.table);
+
+      if (activeEntries.length > 0) {
+        // 1. Identificar la primera sección visible
+        const first = activeEntries[0];
+        const firstTable = first.table;
+        const firstTitle = first.titleEl;
+        // 2. Buscar y eliminar el salto de página inmediatamente anterior al primer bloque visible
+        const allBreaks = Array.from(finalDoc.querySelectorAll('.html2pdf__page-break'));
+        const breakBefore = allBreaks.reverse().find(br => 
+          br.compareDocumentPosition(firstTitle || firstTable) & Node.DOCUMENT_POSITION_FOLLOWING
+        );
+
+        // Guardamos la frontera del salto de página para no eliminar el logo de la página de párrafos (cabecera)
+        const boundary = breakBefore ? breakBefore.previousElementSibling : null;
+        if (breakBefore) breakBefore.remove();
+
+        // 3. Limpiar espacio ARRIBA del título (eliminar logos y huecos hasta la sección anterior)
+        let curr = (firstTitle || firstTable).previousElementSibling;
+        while (curr && curr !== boundary && curr.tagName !== 'TABLE' && !curr.classList.contains('html2pdf__page-break')) {
+          const toProcess = curr;
+          curr = curr.previousElementSibling;
+          toProcess.querySelectorAll('img').forEach(img => img.remove());
+          if (toProcess.tagName === 'IMG') toProcess.remove();
+          else if (toProcess.tagName === 'P' && !toProcess.textContent.trim()) toProcess.remove();
+        }
+
+        // 4. Limpiar espacio ENTRE título y tabla (corregir separación excesiva)
+        if (firstTitle) {
+          let mid = firstTitle.nextElementSibling;
+          while (mid && mid !== firstTable) {
+            const toProcess = mid;
+            mid = mid.nextElementSibling;
+            if (toProcess.tagName === 'P' && !toProcess.textContent.trim()) toProcess.remove();
+          }
+          // Aplicar un margen inferior para que el título no esté pegado pero tampoco lejos
+          firstTitle.style.marginBottom = '1.5em';
+        }
+
+        // 5. Asegurar que las tablas posteriores aparezcan en páginas nuevas
+        for (let i = 1; i < activeTables.length; i++) {
+          const tbl = activeTables[i];
+          const title = activeEntries[i].titleEl;
+          const prevTable = activeTables[i - 1];
+          let hasExistingBreak = false;
+          let p = (title || tbl).previousElementSibling;
+          while (p && p !== prevTable) {
+            if (p.classList.contains('html2pdf__page-break')) {
+              hasExistingBreak = true;
+              break;
+            }
+            p = p.previousElementSibling;
+          }
+          if (!hasExistingBreak) {
+            const pb = finalDoc.createElement('div');
+            pb.className = 'html2pdf__page-break';
+            const target = title || tbl;
+            target.parentNode.insertBefore(pb, target);
+          }
+        }
+      }
+
       // Allow wrapping inside table cells so content fits the template width
       const tds = Array.from(finalDoc.querySelectorAll('td'));
       tds.forEach(td => {
@@ -227,25 +325,12 @@ export default function EntityList({ endpoint }) {
       const cssPrint = `
         <style>
           @page {
-            margin-bottom: 20mm;
+            size: A4;
+            margin: 15mm;
           }
-          @media print { 
-            body { counter-reset: page; }
+          @media print {
             .html2pdf__page-break { page-break-before: always; }
             .no-print { display: none !important; }
-            /* Pie de página fijo en la parte inferior derecha */
-            .page-footer { 
-              position: fixed; 
-              bottom: 5mm; 
-              right: 10mm; 
-              font-size: 10pt; 
-              color: #444;
-              z-index: 9999;
-            }
-            .page-number::after { 
-              counter-increment: page;
-              content: "Página " counter(page);
-            }
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
@@ -273,12 +358,6 @@ export default function EntityList({ endpoint }) {
       // Detectar si es dispositivo móvil para aplicar el fix de impresión
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const closeButtonHtml = isMobile ? `<button onclick="window.frameElement.remove()" class="close-overlay-btn no-print">Cerrar Vista Previa</button>` : '';
-
-      // Inyectar el pie de página fijo al principio del body para asegurar el conteo correcto
-      const footerDiv = finalDoc.createElement('div');
-      footerDiv.className = 'page-footer';
-      footerDiv.innerHTML = '<span class="page-number"></span>';
-      finalDoc.body.insertBefore(footerDiv, finalDoc.body.firstChild);
 
       const fullHtmlString = '<!DOCTYPE html>\n<html><head><title>' + fileName + '</title>' +
         finalDoc.head.innerHTML + cssPrint +
